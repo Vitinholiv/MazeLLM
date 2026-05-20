@@ -13,13 +13,13 @@ def solve_maze(model: MazeGPTModel, tokenizer: MazeTokenizer,
     model.eval()
     ctx_size = model.trf_blocks[0].att.mask.shape[0]
 
-    clean_unsolved = unsolved_maze.strip()
+    clean_unsolved = unsolved_maze.strip() + '\n'
     prompt = clean_unsolved + '&\n'
     
     ids    = tokenizer.encode(prompt)
     idx    = torch.tensor(ids, dtype=torch.long, device=device).unsqueeze(0)
 
-    tokens_to_generate = len(tokenizer.encode(clean_unsolved))
+    tokens_to_generate = len(tokenizer.encode(clean_unsolved))-1
 
     generated = []
     for _ in range(tokens_to_generate):

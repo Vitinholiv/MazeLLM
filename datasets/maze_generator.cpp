@@ -5,7 +5,7 @@ using namespace std;
 // Parâmetros
 const int MIN_SIZE = 5;
 const int MAX_SIZE = 20;
-const int NUM_MAZES = 30 K;
+const int NUM_MAZES = 500;
 const int GRID_W = 20;
 const int GRID_H = 20;
 

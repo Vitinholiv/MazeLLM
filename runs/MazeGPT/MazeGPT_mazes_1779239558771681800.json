@@ -1,0 +1,17 @@
+{
+    "model_name": "MazeGPT_mazes_1779239558771681800",
+    "best_epoch": 10,
+    "total_epochs": 10,
+    "best_loss": 0.05705133460263411,
+    "learning_rate": 0.0003,
+    "dataset_source": "mazes.txt",
+    "architecture_config": {
+        "vocab_size": 11,
+        "context_length": 842,
+        "emb_dim": 256,
+        "n_heads": 8,
+        "n_layers": 6,
+        "drop_rate": 0.1,
+        "qkv_bias": false
+    }
+}

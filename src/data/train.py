@@ -1,3 +1,6 @@
+import os
+import time
+import json
 import torch
 import torch.nn as nn
 from tqdm import tqdm
@@ -10,8 +13,15 @@ def train(model: MazeGPTModel, src: str,
     model.to(device).train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.1)
     criterion = nn.CrossEntropyLoss(ignore_index=0)
-    dataloader = build_dataloader(src, max_length=MAZE_GPT_CONFIG['context_length'], batch_size=8)
+    dataloader = build_dataloader(os.path.join('train',src), max_length=model.context_len, batch_size=8)
+    name = f'{model.name}_{src[:-4]}_{time.time_ns()}'
 
+    os.makedirs("runs", exist_ok=True)
+    os.makedirs(os.path.join("runs",model.name), exist_ok=True)
+    pt_path = os.path.join(os.path.join("runs",model.name), f"{name}.pt")
+    json_path = os.path.join(os.path.join("runs",model.name), f"{name}.json")
+
+    best_loss = float('inf')
     for epoch in range(num_epochs):
         total_loss = 0.0
         progress_bar = tqdm(dataloader, desc=f"Epoch {epoch + 1:>3}/{num_epochs}")
@@ -30,5 +40,22 @@ def train(model: MazeGPTModel, src: str,
             progress_bar.set_postfix({'loss': f"{loss.item():.4f}"})
 
         avg = total_loss / len(dataloader)
-        print(f"End of Epoch {epoch + 1:>3} — Average Loss: {avg:.4f}\n")
+        print(f"Época {epoch + 1:>3}. Loss: {avg:.4f}")
+        
+        if avg < best_loss:
+            print(f"Best Loss: ({best_loss:.4f} -> {avg:.4f}). Salvando {name}...")
+            best_loss = avg
+        
+            torch.save(model.state_dict(), pt_path)
+            info_data = {
+                "model_name": name,
+                "best_epoch": epoch + 1,
+                "total_epochs": num_epochs,
+                "best_loss": best_loss,
+                "learning_rate": lr,
+                "dataset_source": src,
+                "architecture_config": MAZE_GPT_CONFIG
+            }
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(info_data, f, indent=4, ensure_ascii=False)
     return model
