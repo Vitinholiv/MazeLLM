@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
@@ -45,7 +46,7 @@ class MazeDataset(Dataset):
         self.input_ids  = []
         self.target_ids = []
 
-        mazes = [m for m in txt.split("\n\n") if m.strip()]
+        mazes = [m for m in txt.split("\n\n")]
 
         for maze in mazes:
             ids = tokenizer.encode(maze)
@@ -67,10 +68,10 @@ class MazeDataset(Dataset):
         return self.input_ids[idx], self.target_ids[idx]
 
 # Dataloader
-def build_dataloader(src: str, max_length: int, batch_size: int = 4,
+def build_dataloader(dsrc: str, max_length: int, batch_size: int = 4,
                      shuffle: bool = True, drop_last: bool = True,
                      num_workers: int = 0) -> DataLoader:
-    with open(src) as f:
+    with open(os.path.join('datasets',dsrc)) as f:
         txt = f.read()
     tokenizer = MazeTokenizer()
     dataset   = MazeDataset(txt, tokenizer, max_length)

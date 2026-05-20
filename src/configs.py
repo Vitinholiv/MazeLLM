@@ -37,7 +37,7 @@ def init(seed = 42, conf = MAZE_GPT_CONFIG):
     t_in   = torch.tensor(enc, dtype=torch.long).unsqueeze(0)
     with torch.no_grad():
         logits = model(t_in)
-    print(f"Forward pass OK -> logits shape: {logits.shape}")
+    print(f"- Forward pass OK -> logits shape: {logits.shape}\n")
 
     return tokenizer, model, device
 

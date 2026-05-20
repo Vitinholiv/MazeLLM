@@ -32,6 +32,8 @@ class MazeGPTModel(nn.Module):
         self.trf_blocks = nn.Sequential(*[TransformerBlock(cfg) for _ in range(cfg["n_layers"])])
         self.final_norm = LayerNorm(cfg["emb_dim"])
         self.out_head   = nn.Linear(cfg["emb_dim"], cfg["vocab_size"], bias=False)
+        self.name = "MazeGPT"
+        self.context_len = cfg["context_length"]
 
     def forward(self, in_idx: torch.Tensor) -> torch.Tensor:
         x = self.drop_emb(self.encoder(in_idx))
