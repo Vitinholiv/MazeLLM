@@ -71,7 +71,11 @@ class MazeDataset(Dataset):
 def build_dataloader(dsrc: str, max_length: int, batch_size: int = 4,
                      shuffle: bool = True, drop_last: bool = True,
                      num_workers: int = 0) -> DataLoader:
-    with open(os.path.join('datasets',dsrc)) as f:
+    
+    if 'datasets' not in dsrc:
+        os.path.join('datasets', dsrc)
+
+    with open(dsrc) as f:
         txt = f.read()
     tokenizer = MazeTokenizer()
     dataset   = MazeDataset(txt, tokenizer, max_length)
