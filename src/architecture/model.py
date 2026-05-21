@@ -33,6 +33,7 @@ class MazeGPTModel(nn.Module):
         self.final_norm = LayerNorm(cfg["emb_dim"])
         self.out_head   = nn.Linear(cfg["emb_dim"], cfg["vocab_size"], bias=False)
         self.name = "MazeGPT"
+        self.iname = ''
         self.context_len = cfg["context_length"]
 
     def forward(self, in_idx: torch.Tensor) -> torch.Tensor:

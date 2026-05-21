@@ -1,3 +1,4 @@
+import os
 import random
 import torch
 import torch.nn as nn
@@ -52,7 +53,7 @@ def evaluate(model: MazeGPTModel, tokenizer: MazeTokenizer,
         data = [m for m in f.read().split("\n\n") if m.strip()]
 
     response = {
-        'Sample': ['SA','SAMPLE','SAMP','SAMPLING'],
+        'Sample': ['S','SAMPLE','SAMP','SAMPLING'],
         'Metrics': ['M','METRICS','STATISTICS','STATS','STAT','ST'],
         'Quit': ['Q','QUIT']
     }
@@ -156,12 +157,23 @@ def evaluate(model: MazeGPTModel, tokenizer: MazeTokenizer,
                     if dir_invalida: stats["Direção Inválida"] += 1
                     if desconexo: stats["Caminho Desconexo"] += 1
 
-            print("\n")
-            print("+" + "-"*48 + "+")
-            print(f"| {'Relatório de Avaliação':^46} |")
-            print("+" + "-"*35 + "+" + "-"*12 + "+")
-            print(f"| {'Métrica':<33} | {'Valor':<10} |")
-            print("+" + "="*35 + "+" + "="*12 + "+")
+            table_str = "\n"
+            table_str += "+" + "-"*48 + "+\n"
+            table_str += f"| {'Relatório de Avaliação':^46} |\n"
+            table_str += "+" + "-"*35 + "+" + "-"*12 + "+\n"
+            table_str += f"| {'Métrica':<33} | {'Valor':<10} |\n"
+            table_str += "+" + "="*35 + "+" + "="*12 + "+\n"
             for k, v in stats.items():
-                print(f"| {k:<33} | {str(v):<10} |")
-            print("+" + "-"*35 + "+" + "-"*12 + "+\n")
+                table_str += f"| {k:<33} | {str(v):<10} |\n"
+            table_str += "+" + "-"*35 + "+" + "-"*12 + "+\n"
+
+            print(table_str)
+
+            dataset_name = os.path.splitext(os.path.basename(source))[0]
+            output_filename = f"{model.iname}_{dataset_name}.txt"
+            output_path = os.path.join(os.path.join('runs',model.name),output_filename)
+            with open(output_path, 'w', encoding='utf-8') as f_out:
+                f_out.write(table_str)
+
+        elif action in response['Quit']:
+            return

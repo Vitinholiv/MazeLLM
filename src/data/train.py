@@ -15,6 +15,7 @@ def train(model: MazeGPTModel, src: str,
     criterion = nn.CrossEntropyLoss(ignore_index=0)
     dataloader = build_dataloader(os.path.join('train',src), max_length=model.context_len, batch_size=8)
     name = f'{model.name}_{src[:-4]}_{time.time_ns()}'
+    model.iname = name
 
     os.makedirs("runs", exist_ok=True)
     os.makedirs(os.path.join("runs",model.name), exist_ok=True)
