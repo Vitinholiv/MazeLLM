@@ -52,12 +52,14 @@ if __name__ == "__main__":
                 true_pt_f = f"{ist}.pt"
             else:
                 print(f'Instância não encontrada. Usando {inst_clean[0]}.pt')
+                ist = inst_files[0][:-3]
                 true_pt_f = inst_files[0]
 
             mdict = os.path.join(model_folder, true_pt_f)
             print(f"Carregando pesos de: {mdict}")
             model.load_state_dict(torch.load(mdict, map_location=device, weights_only=True))
             model.to(device)
+            model.iname = ist
 
             test_dir = './datasets/test/'
             tfiles = [f[:-4] for f in os.listdir(test_dir) if f.endswith('.txt')]
