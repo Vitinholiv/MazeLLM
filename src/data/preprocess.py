@@ -43,8 +43,8 @@ class MazeTokenizer:
 # Dataset
 class MazeDataset(Dataset):
     def __init__(self, txt: str, tokenizer: MazeTokenizer, max_length: int):
-        self.input_ids  = []
-        self.target_ids = []
+        input_ids  = []
+        target_ids = []
 
         mazes = [m for m in txt.split("\n\n")]
 
@@ -58,8 +58,11 @@ class MazeDataset(Dataset):
             else:
                 ids = ids[:max_length + 1]
 
-            self.input_ids.append(torch.tensor(ids[:max_length],     dtype=torch.long))
-            self.target_ids.append(torch.tensor(ids[1:max_length+1], dtype=torch.long))
+            input_ids.append(ids[:max_length])
+            target_ids.append(ids[1:max_length+1])
+
+        self.input_ids  = torch.tensor(input_ids,  dtype=torch.long)
+        self.target_ids = torch.tensor(target_ids, dtype=torch.long)
 
     def __len__(self):
         return len(self.input_ids)
@@ -71,9 +74,6 @@ class MazeDataset(Dataset):
 def build_dataloader(dsrc: str, max_length: int, batch_size: int = 4,
                      shuffle: bool = True, drop_last: bool = True,
                      num_workers: int = 0) -> DataLoader:
-    
-    if 'datasets' not in dsrc:
-        os.path.join('datasets', dsrc)
 
     with open(dsrc) as f:
         txt = f.read()
@@ -86,6 +86,7 @@ def build_dataloader(dsrc: str, max_length: int, batch_size: int = 4,
         shuffle=shuffle,
         drop_last=drop_last,
         num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
     )
 
 # Encoder
