@@ -1,76 +1,42 @@
 import torch
 from src.data.train import train
 from src.data.eval import evaluate
-from src.configs import init, MAZE_GPT_CONFIG
-import os
+from src.general.configs import init, MAZE_GPT_CONFIG
+from src.general.helpers import prompt_for_file, prompt_for_value, prompt_options, path, empty, lastname
 
 if __name__ == "__main__":
     tokenizer, model, device = init(42, MAZE_GPT_CONFIG)
-    response = {
-        'Train': ['T','TRAIN','TR','TRAINING'],
-        'Eval': ['E','EVAL','EV','EVALUATION'],
-        'Quit': ['Q','QUIT']
-    }
 
     while True:
-        action = input('Escolha (Train|Eval|Quit): ').strip().upper()
-        if action in response['Train']:
+        action = prompt_options('Modo de Execução',['Train','Eval','Quit'])
+        if action == 'Train':
 
-            files = [f[:-4] for f in os.listdir('./datasets/train/') if f.endswith('.txt')]
-            opts = "|".join(files)
-            fl = input(f'Dados de Treino ({opts}): ').strip()
-            if fl not in files:
-                print(f'Arquivo não encontrado. Usando {files[0]}.txt')
-                fl = files[0]
-            epc = int(input('Épocas: '))
+            file = prompt_for_file('Dados de Treino',path('datasets/train'))
+            if file is None: break
 
-            train(model, f'{fl}.txt', epc, device=device)
+            epochs = prompt_for_value('Épocas',int)
 
-        elif action in response['Eval']:
-            if not os.path.exists('runs') or not os.listdir('runs'):
+            train(model, file, epochs, device=device)
+
+        elif action == 'Eval':
+            if empty(path('runs')):
                 print("Nenhuma execução encontrada. Treine um modelo primeiro.")
                 continue
 
-            mods = [f for f in os.listdir('runs') if os.path.isdir(os.path.join('runs', f))]
-            mopts = "|".join(mods)
-            md = input(f'Modelo ({mopts}): ').strip()
-            if md not in mods:
-                print(f'Modelo não encontrado. Usando {mods[0]}')
-                md = mods[0]
-            
-            model_folder = os.path.join('runs', md)
-            inst_files = [f for f in os.listdir(model_folder) if f.endswith('.pt')]
-            if not inst_files:
-                print(f"Nenhum arquivo de pesos encontrado em '{model_folder}'.")
-                continue
+            run = prompt_for_file('Modelo','runs',['folder'])
+            if run is None: break
 
-            inst_clean = [f[:-3] for f in inst_files]
-            iopts = "|".join(inst_clean)
-            ist = input(f'Instância ({iopts}): ').strip()
-            
-            if ist in inst_clean:
-                true_pt_f = f"{ist}.pt"
-            else:
-                print(f'Instância não encontrada. Usando {inst_clean[0]}.pt')
-                ist = inst_files[0][:-3]
-                true_pt_f = inst_files[0]
+            instance = prompt_for_file('Instância',run,['.pt'])
+            if instance is None: break
 
-            mdict = os.path.join(model_folder, true_pt_f)
-            print(f"Carregando pesos de: {mdict}")
-            model.load_state_dict(torch.load(mdict, map_location=device, weights_only=True))
+            model.load_state_dict(torch.load(instance, map_location=device, weights_only=True))
             model.to(device)
-            model.iname = ist
+            model.iname = lastname(instance)
 
-            test_dir = './datasets/test/'
-            tfiles = [f[:-4] for f in os.listdir(test_dir) if f.endswith('.txt')]
-            topts = "|".join(tfiles)
-            tfl = input(f'Dados de Teste ({topts}): ').strip()
-            if tfl not in tfiles:
-                print(f'Arquivo não encontrado. Usando {tfiles[0]}.txt')
-                tfl = tfiles[0]
+            testfile = prompt_for_file('Dados de Teste',path('datasets/test'))
+            if testfile is None: break
 
-            test_path = os.path.join(test_dir, f'{tfl}.txt')
-            evaluate(model, tokenizer, test_path, device, temperature=0.0)
+            evaluate(model, tokenizer, testfile, device, temperature=0.0)
 
-        elif action in response['Quit']:
+        elif action == 'Quit':
             break

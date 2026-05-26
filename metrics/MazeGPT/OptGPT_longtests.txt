@@ -1,0 +1,15 @@
+
++------------------------------------------------+
+|             Relatório de Avaliação             |
++-----------------------------------+------------+
+| Métrica                           | Valor      |
++===================================+============+
+| Total Avaliados                   | 500        |
+| Loss Média                        | 0.0543     |
+| Solução Exata                     | 451        |
+| Violação de Parede (#)            | 3          |
+| Caminho Desconexo                 | 46         |
+| Direção Inválida                  | 46         |
+| Não Começou do Início (S)         | 0          |
+| Não Chegou no Final (E)           | 1          |
++-----------------------------------+------------+
