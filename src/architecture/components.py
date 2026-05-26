@@ -1,12 +1,11 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 # GELU Activation Function
 class GELU(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return 0.5 * x * (1.0 + torch.tanh(
-            (2.0 / torch.pi) ** 0.5 * (x + 0.044715 * x.pow(3))
-        ))
+        return F.gelu(x, approximate="tanh")
 
 # Layer Norm
 class LayerNorm(nn.Module):
@@ -17,9 +16,7 @@ class LayerNorm(nn.Module):
         self.shift = nn.Parameter(torch.zeros(emb_dim))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        mean = x.mean(dim=-1, keepdim=True)
-        var  = x.var(dim=-1,  keepdim=True, unbiased=False)
-        return self.scale * (x - mean) / torch.sqrt(var + self.eps) + self.shift
+        return F.layer_norm(x, (x.size(-1),), self.scale, self.shift, self.eps)
     
 # MLP
 class FeedForward(nn.Module):
@@ -62,11 +59,11 @@ class MultiHeadAttention(nn.Module):
         K = self.W_key(x)  .view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
         V = self.W_value(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
 
-        scores = (Q @ K.transpose(-2, -1)) * scale
-        scores.masked_fill_(self.mask[:T, :T].bool(), float('-inf'))
-
-        weights = torch.softmax(scores, dim=-1)
-        weights = self.dropout(weights)
-
-        out = (weights @ V).transpose(1, 2).contiguous().view(B, T, self.d_out)
+        out = F.scaled_dot_product_attention(
+            Q, K, V,
+            dropout_p=self.dropout.p if self.training else 0.0,
+            is_causal=True,
+            scale=scale,
+        )
+        out = out.transpose(1, 2).contiguous().view(B, T, self.d_out)
         return self.out_proj(out)
