@@ -3,16 +3,20 @@ import time
 import json
 import torch
 import torch.nn as nn
+from torch import autocast
+from torch.amp.grad_scaler import GradScaler
 from tqdm import tqdm
 from src.architecture.model import MazeGPTModel
 from src.data.preprocess import DataLoader, MazeTokenizer, build_dataloader
-from src.configs import MAZE_GPT_CONFIG, init
+from src.general.configs import MAZE_GPT_CONFIG, init
 
 def train(model: MazeGPTModel, src: str,
           num_epochs: int, device: torch.device, lr: float = 3e-4):
     model.to(device).train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.1)
     criterion = nn.CrossEntropyLoss(ignore_index=0)
+    use_amp = device.type == "cuda"
+    scaler = GradScaler(device.type, enabled=use_amp)
     dataloader = build_dataloader(os.path.join('train',src), max_length=model.context_len, batch_size=8)
     name = f'{model.name}_{src[:-4]}_{time.time_ns()}'
     model.iname = name
@@ -28,14 +32,19 @@ def train(model: MazeGPTModel, src: str,
         progress_bar = tqdm(dataloader, desc=f"Epoch {epoch + 1:>3}/{num_epochs}")
         
         for inputs, targets in progress_bar:
-            inputs, targets = inputs.to(device), targets.to(device)
+            inputs  = inputs.to(device, non_blocking=True)
+            targets = targets.to(device, non_blocking=True)
 
-            optimizer.zero_grad()
-            logits = model(inputs)
-            loss   = criterion(logits.flatten(0, 1), targets.flatten())
-            loss.backward()
+            optimizer.zero_grad(set_to_none=True)
+            with autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
+                logits = model(inputs)
+                loss   = criterion(logits.flatten(0, 1), targets.flatten())
+
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
             total_loss += loss.item()
             
             progress_bar.set_postfix({'loss': f"{loss.item():.4f}"})
