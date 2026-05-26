@@ -5,15 +5,12 @@ import torch.nn as nn
 from tqdm import tqdm
 from src.architecture.model import MazeGPTModel
 from src.data.preprocess import MazeTokenizer, build_dataloader
+from src.general.helpers import prompt_options, path
 
 @torch.no_grad()
 def solve_maze(model: MazeGPTModel, tokenizer: MazeTokenizer,
                unsolved_maze: str, device: torch.device,
                temperature: float = 0.0) -> str:
-    """
-    temperature = 0.0  →  greedy / deterministic
-    temperature > 0.0  →  sampled
-    """
     model.eval()
     ctx_size = model.trf_blocks[0].att.mask.shape[0]
 
@@ -52,34 +49,27 @@ def evaluate(model: MazeGPTModel, tokenizer: MazeTokenizer,
     with open(source, 'r', encoding='utf-8') as f:
         data = [m for m in f.read().split("\n\n") if m.strip()]
 
-    response = {
-        'Sample': ['S','SAMPLE','SAMP','SAMPLING'],
-        'Metrics': ['M','METRICS','STATISTICS','STATS','STAT','ST'],
-        'Quit': ['Q','QUIT']
-    }
-    
     while True:
-        action = input("Opção (Sample|Metrics|Quit): ").strip().upper()
+        action = prompt_options("Ação", ["Sample", "Metrics", "Quit"])
     
-        if action in response['Sample']:
+        if action == "Sample":
             sample_raw = random.choice(data)
             parts = sample_raw.split('&\n')
-            if len(parts) != 2:
-                print("Erro de formato na amostra selecionada no arquivo.")
-                return
-                
+            while len(parts) != 2:
+                parts = sample_raw.split('&\n')
+
             unsolved, expected = parts[0] + '\n', parts[1]
             pred = solve_maze(model, tokenizer, unsolved, device, temperature)
             
-            print("Teste de Amostra:".center(40))
+            print("\nTeste de Amostra:\n")
             print("[ENTRADA]")
             print(unsolved.strip())
             print("\n[PREDITO]")
             print(pred.strip())
             print("\n[ESPERADO]")
             print(expected.strip(),'\n')
-
-        elif action in response['Metrics']:
+            
+        elif action == "Metrics":
             print("\n[1/2] Calculando Loss do conjunto de teste...")
             criterion = nn.CrossEntropyLoss(ignore_index=0)
             dataloader = build_dataloader(source, max_length=model.context_len, batch_size=8, shuffle=False)
@@ -94,7 +84,7 @@ def evaluate(model: MazeGPTModel, tokenizer: MazeTokenizer,
             
             print("\n[2/2] Avaliando métricas espaciais...")
             stats = {
-                "Total Avaliados": len(data),
+                "Total de Avaliações": len(data),
                 "Loss Média": f"{avg_loss:.4f}",
                 "Solução Exata": 0,
                 "Violação de Parede (#)": 0,
@@ -171,9 +161,14 @@ def evaluate(model: MazeGPTModel, tokenizer: MazeTokenizer,
 
             dataset_name = os.path.splitext(os.path.basename(source))[0]
             output_filename = f"{model.iname}_{dataset_name}.txt"
-            output_path = os.path.join(os.path.join('runs',model.name),output_filename)
+            output_dir = path(f'metrics/{model.name}')
+            
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = path(f'{output_dir}/{output_filename}')
             with open(output_path, 'w', encoding='utf-8') as f_out:
                 f_out.write(table_str)
-
-        elif action in response['Quit']:
+                
+            print(f"Resultados salvos em: {output_path}")
+            
+        elif action == "Quit":
             return
