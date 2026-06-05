@@ -12,7 +12,9 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "torch",
+    "numpy",
     "tqdm",
+    "matplotlib"
 ]
 
 [tool.setuptools.packages.find]

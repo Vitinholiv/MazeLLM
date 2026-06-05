@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
-# Tokenizer
 class MazeTokenizer:
     def __init__(self):
         self.char_to_id = {
@@ -40,7 +39,6 @@ class MazeTokenizer:
     def decode(self, ids: list) -> str:
         return "".join(self.id_to_char.get(i, '?') for i in ids)
 
-# Dataset
 class MazeDataset(Dataset):
     def __init__(self, txt: str, tokenizer: MazeTokenizer, max_length: int):
         input_ids  = []
@@ -70,7 +68,6 @@ class MazeDataset(Dataset):
     def __getitem__(self, idx):
         return self.input_ids[idx], self.target_ids[idx]
 
-# Dataloader
 def build_dataloader(dsrc: str, max_length: int, batch_size: int = 4,
                      shuffle: bool = True, drop_last: bool = True,
                      num_workers: int = 0) -> DataLoader:
@@ -89,7 +86,6 @@ def build_dataloader(dsrc: str, max_length: int, batch_size: int = 4,
         pin_memory=torch.cuda.is_available(),
     )
 
-# Encoder
 class MazeEncoder(nn.Module):
     def __init__(self, vocab_size: int, d_model: int, max_len: int):
         super().__init__()

@@ -2,12 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# GELU Activation Function
 class GELU(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return F.gelu(x, approximate="tanh")
 
-# Layer Norm
 class LayerNorm(nn.Module):
     def __init__(self, emb_dim: int):
         super().__init__()
@@ -18,7 +16,6 @@ class LayerNorm(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return F.layer_norm(x, (x.size(-1),), self.scale, self.shift, self.eps)
     
-# MLP
 class FeedForward(nn.Module):
     def __init__(self, cfg):
         super().__init__()
@@ -31,7 +28,6 @@ class FeedForward(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.layers(x)
     
-# Attention Layer
 class MultiHeadAttention(nn.Module):
     def __init__(self, d_in, d_out, context_length, dropout, num_heads, qkv_bias=False):
         super().__init__()
@@ -53,10 +49,10 @@ class MultiHeadAttention(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, _ = x.shape
-        scale    = self.head_dim ** -0.5
+        scale = self.head_dim ** -0.5
 
         Q = self.W_query(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
-        K = self.W_key(x)  .view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        K = self.W_key(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
         V = self.W_value(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
 
         out = F.scaled_dot_product_attention(
@@ -67,3 +63,25 @@ class MultiHeadAttention(nn.Module):
         )
         out = out.transpose(1, 2).contiguous().view(B, T, self.d_out)
         return self.out_proj(out)
+    
+    def weighted_forward(self, x: torch.Tensor):
+        B, T, _ = x.shape
+        scale = self.head_dim ** -0.5
+
+        Q = self.W_query(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        K = self.W_key(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        V = self.W_value(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+
+        scores = (Q @ K.transpose(-2, -1)) * scale
+        scores = scores.to(torch.float32)
+            
+        mask_bool = self.mask[:T, :T].bool()
+        scores = scores.masked_fill(mask_bool, float('-inf'))
+        attn_weights = torch.softmax(scores, dim=-1)
+        attn_weights = attn_weights.to(V.dtype)
+
+        out = attn_weights @ V
+        out = out.transpose(1, 2).contiguous().view(B, T, self.d_out)
+        out = self.out_proj(out)
+
+        return (out, attn_weights)

@@ -36,7 +36,7 @@ if __name__ == "__main__":
             testfile = prompt_for_file('Dados de Teste',path('datasets/test'))
             if testfile is None: break
 
-            evaluate(model, tokenizer, testfile, device, temperature=0.0)
+            evaluate(model, tokenizer, testfile, device)
 
         elif action == 'Quit':
             break

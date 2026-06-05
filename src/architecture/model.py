@@ -3,7 +3,6 @@ import torch.nn as nn
 from src.architecture.components import MultiHeadAttention, LayerNorm, FeedForward
 from src.data.preprocess import MazeEncoder
 
-# Transformer Block
 class TransformerBlock(nn.Module):
     def __init__(self, cfg):
         super().__init__()
@@ -22,8 +21,13 @@ class TransformerBlock(nn.Module):
         x = x + self.drop(self.att(self.norm1(x)))
         x = x + self.drop(self.ff(self.norm2(x)))
         return x
+    
+    def weighted_forward(self, x: torch.Tensor):
+        att_out, attn_weights = self.att.weighted_forward(self.norm1(x))
+        x = x + self.drop(att_out)
+        x = x + self.drop(self.ff(self.norm2(x)))
+        return x, attn_weights
 
-# Maze GPT Model
 class MazeGPTModel(nn.Module):
     def __init__(self, cfg):
         super().__init__()
@@ -41,3 +45,20 @@ class MazeGPTModel(nn.Module):
         x = self.trf_blocks(x)
         x = self.final_norm(x)
         return self.out_head(x)
+    
+    @torch.no_grad()
+    def get_attention(self, in_idx: torch.Tensor, layer_idx: int = -1):
+        x = self.drop_emb(self.encoder(in_idx))
+        extracted_weights = None
+        if layer_idx < 0:
+            layer_idx += len(self.trf_blocks)
+
+        for i, block in enumerate(self.trf_blocks):
+            if i == layer_idx:
+                x, extracted_weights = block.weighted_forward(x)
+            else:
+                x = block(x)
+                
+        x = self.final_norm(x)
+        logits = self.out_head(x)
+        return logits, extracted_weights
