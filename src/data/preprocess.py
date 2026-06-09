@@ -86,7 +86,7 @@ def build_dataloader(dsrc: str, max_length: int, batch_size: int = 4,
         pin_memory=torch.cuda.is_available(),
     )
 
-class MazeEncoder(nn.Module):
+class MazeEmbedder(nn.Module):
     def __init__(self, vocab_size: int, d_model: int, max_len: int):
         super().__init__()
         self.token_embedding = nn.Embedding(vocab_size, d_model)

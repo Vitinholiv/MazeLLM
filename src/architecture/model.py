@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from src.architecture.components import MultiHeadAttention, LayerNorm, FeedForward
-from src.data.preprocess import MazeEncoder
+from src.data.preprocess import MazeEmbedder
 
 class TransformerBlock(nn.Module):
     def __init__(self, cfg):
@@ -31,7 +31,7 @@ class TransformerBlock(nn.Module):
 class MazeGPTModel(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        self.encoder    = MazeEncoder(cfg["vocab_size"], cfg["emb_dim"], cfg["context_length"])
+        self.embedder    = MazeEmbedder(cfg["vocab_size"], cfg["emb_dim"], cfg["context_length"])
         self.drop_emb   = nn.Dropout(cfg["drop_rate"])
         self.trf_blocks = nn.Sequential(*[TransformerBlock(cfg) for _ in range(cfg["n_layers"])])
         self.final_norm = LayerNorm(cfg["emb_dim"])
@@ -41,14 +41,14 @@ class MazeGPTModel(nn.Module):
         self.context_len = cfg["context_length"]
 
     def forward(self, in_idx: torch.Tensor) -> torch.Tensor:
-        x = self.drop_emb(self.encoder(in_idx))
+        x = self.drop_emb(self.embedder(in_idx))
         x = self.trf_blocks(x)
         x = self.final_norm(x)
         return self.out_head(x)
     
     @torch.no_grad()
     def get_attention(self, in_idx: torch.Tensor, layer_idx: int = -1):
-        x = self.drop_emb(self.encoder(in_idx))
+        x = self.drop_emb(self.embedder(in_idx))
         extracted_weights = None
         if layer_idx < 0:
             layer_idx += len(self.trf_blocks)
