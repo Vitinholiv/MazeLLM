@@ -1,6 +1,58 @@
 import os
 
-def prompt_for_file(message, path, extensions=None):
+class path:
+    def __init__(self, x=""):
+        if isinstance(x, path):
+            self._val = x._val
+        elif isinstance(x, str):
+            self._val = os.path.join(*x.split('/')) if x else ""
+        else:
+            raise TypeError("path aceita apenas 'str' ou objetos 'path'")
+
+    def __add__(self, other):
+        new_path = path()
+        wants_slash = isinstance(other, str) and other.endswith('/')
+        
+        if isinstance(other, path):
+            new_path._val = os.path.join(self._val, other._val)
+        elif isinstance(other, str):
+            new_path._val = os.path.join(self._val, *other.split('/'))
+        else:
+            print(f'Warning: Path unaltered, attempted to append: {other}')
+            new_path._val = self._val
+            
+        if wants_slash and not new_path._val.endswith(os.sep):
+            new_path._val += os.sep
+            
+        return new_path
+
+    def __radd__(self, other):
+        new_path = path()
+        wants_slash = self._val.endswith(os.sep)
+        
+        if isinstance(other, path):
+            new_path._val = os.path.join(other._val, self._val)
+        elif isinstance(other, str):
+            new_path._val = os.path.join(*other.split('/'), self._val)
+        else:
+            print(f'Warning: Path unaltered, attempted to append: {other}')
+            new_path._val = self._val
+
+        if wants_slash and not new_path._val.endswith(os.sep):
+            new_path._val += os.sep
+            
+        return new_path
+
+    def __str__(self):
+        return self._val
+
+    def __repr__(self):
+        return f"path('{self._val.replace(os.sep, '/')}')"
+    
+    def __fspath__(self):
+        return self._val
+
+def prompt_for_file(message, path, extensions=None, recurse=False):
     if not os.path.exists(path):
         print(f"Diretório não encontrado: {path}")
         return None
@@ -10,51 +62,43 @@ def prompt_for_file(message, path, extensions=None):
     filter_files = (extensions is not None)
 
     if filter_files:
-        if isinstance(extensions, str):
-            ext_list = [extensions]
-        else:
-            ext_list = list(extensions)
-            
+        if isinstance(extensions, str): ext_list = [extensions]
+        else: ext_list = list(extensions)
         allow_folders = 'folder' in ext_list
         valid_exts = tuple(e for e in ext_list if e != 'folder')
 
-    files = []
-    for f in os.listdir(path):
-        full_path = os.path.join(path, f)
-        
-        if os.path.isdir(full_path):
-            if allow_folders:
-                files.append(f)
-                
-        elif os.path.isfile(full_path):
-            if not filter_files:
-                files.append(f)
-            elif valid_exts and f.endswith(valid_exts):
-                files.append(f)
+    # Dicionário que mapeia: "Visual Name" -> "Real Full Path"
+    file_map = {} 
 
-    if not files:
+    def search(curr_path, seq=''):
+        for f in os.listdir(curr_path):
+            full_path = os.path.join(curr_path, f)
+            display_name = seq + f
+            
+            if os.path.isdir(full_path):
+                if allow_folders: file_map[display_name] = full_path
+                if recurse: search(full_path, display_name + ' > ')
+            elif os.path.isfile(full_path):
+                if not filter_files: file_map[display_name] = full_path
+                elif valid_exts and f.endswith(valid_exts): file_map[display_name] = full_path
+
+    search(path)
+
+    if not file_map:
         print(f"Nenhum item encontrado em: {path}")
         return None
 
-    file_map = {os.path.splitext(f)[0]: f for f in files}
     options = list(file_map.keys())
-    opts_str = " | ".join([f"[{i+1}] {opt}" for i, opt in enumerate(options)])
-    user_input = input(f'{message} ({opts_str}): ').strip()
+    opts_str = "\n   ".join([f"[{i+1}] {opt}" for i, opt in enumerate(options)])
+    user_input = input(f'{message} (\n   {opts_str}\n): ').strip()
     
     if user_input in file_map:
-        selected_file = file_map[user_input]
+        return file_map[user_input]
     elif user_input.isdigit() and 1 <= int(user_input) <= len(options):
-        idx = int(user_input) - 1
-        selected_file = file_map[options[idx]]
+        return file_map[options[int(user_input) - 1]]
     else:
-        if user_input == '':
-            print(f"Seleção automática: {options[0]}")
-            selected_file = file_map[options[0]]
-        else:
-            print(f"Opção inválida. Usando: {options[0]}")
-            selected_file = file_map[options[0]]
-        
-    return os.path.join(path, selected_file)
+        print(f"Usando automático: {options[0]}")
+        return file_map[options[0]]
 
 def prompt_for_value(message, expected_type):
     while True:
@@ -93,10 +137,6 @@ def prompt_options(message, options):
             selected_option = options[0]
             
     return selected_option
-
-def path(x):
-    parts = x.split('/')
-    return os.path.join(*parts)
 
 def empty(x):
     return not os.listdir(x)
