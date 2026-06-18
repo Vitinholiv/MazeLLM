@@ -19,31 +19,38 @@ class MazeTokenizer:
 
     def encode(self, text: str) -> list:
         return [self.char_to_id.get(c, self.pad_id) for c in text if c in self.char_to_id]
+    
+    def decode(self, ids: list) -> str:
+        return "".join(self.id_to_char.get(i, '?') for i in ids)
 
 class MazeDataset(Dataset):
     def __init__(self, txt: str, tokenizer: MazeTokenizer, max_len: int, mode="dencoder"):
-        self.tokenizer = tokenizer
-        self.mode = mode
+        self.tokenizer, self.mode = tokenizer, mode
         self.samples = []
-
+        
+        # O split original estava procurando por <SEP>, agora usamos o separador real do seu arquivo
         for block in txt.split("\n\n"):
-            if '<SEP>' not in block: continue
-            m_part, r_part = block.split('<SEP>')
+            if '&\n' not in block: 
+                continue
+            
+            # Divide usando o delimitador correto que você mostrou
+            m_part, r_part = block.split('&\n')
             
             m_ids = tokenizer.encode(m_part.strip())
+            # Adicionamos o token '&' (sep_id) antes da rota, pois o '&' faz parte do seu formato
             r_ids = tokenizer.encode(r_part.strip())
             
             if self.mode == "single":
-                # [MAPA, <SEP>, <START>, ROTA, <END>]
+                # Formato: [MAPA, &, <START>, ROTA, <END>]
+                # O '&' (sep_id) já está no seu tokenizer (ID 6)
                 full = m_ids + [tokenizer.sep_id, tokenizer.start_id] + r_ids + [tokenizer.end_id]
-                full = self._pad(full, max_len + 1)
+                full = (full + [tokenizer.pad_id] * (max_len + 1))[:max_len + 1]
                 self.samples.append((torch.tensor(full[:-1]), torch.tensor(full[1:])))
             
-            elif self.mode == "dencoder"
-                # Encoder(MAPA) -> Decoder(START, ROTA) -> Target(ROTA, END)
-                m_in = self._pad(m_ids, max_len)
-                r_in = self._pad([tokenizer.start_id] + r_ids, max_len)
-                r_out = self._pad(r_ids + [tokenizer.end_id], max_len)
+            else: # dencoder
+                m_in = (m_ids + [tokenizer.pad_id] * max_len)[:max_len]
+                r_in = ([tokenizer.start_id] + r_ids + [tokenizer.pad_id] * max_len)[:max_len]
+                r_out = (r_ids + [tokenizer.end_id] + [tokenizer.pad_id] * max_len)[:max_len]
                 self.samples.append((torch.tensor(m_in), torch.tensor(r_in), torch.tensor(r_out)))
 
     def _pad(self, ids, length):
@@ -79,3 +86,5 @@ class MazeEmbedder(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         positions = torch.arange(x.size(1), device=x.device)
         return self.token_embedding(x) + self.pos_embedding(positions)
+    
+
