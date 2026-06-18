@@ -3,8 +3,6 @@ import torch.nn as nn
 from src.architecture.components import EncoderTransformerBlock, DecoderTransformerBlock, CrossDecoderTransformerBlock
 from src.data.preprocess import MazeEmbedder
 
-
-
 class MazeEncoder(nn.Module):
     """
     Modelo Encoder para a resolução de labirintos.
@@ -22,6 +20,7 @@ class MazeEncoder(nn.Module):
         
         self.final_norm  = nn.LayerNorm(config["emb_dim"])
         self.out_head    = nn.Linear(config["emb_dim"], config["vocab_size"], bias=False)
+        self.out_head.weight = self.embedder.token_embedding.weight
         
         self.name        = "MazeEncoder"
         self.iname       = ''
@@ -61,7 +60,6 @@ class MazeEncoder(nn.Module):
         return logits, extracted_weights
     
 
-
 class MazeDecoder(nn.Module):
     """
     Modelo Decoder para a resolução de labirintos.
@@ -81,6 +79,7 @@ class MazeDecoder(nn.Module):
         
         self.final_norm = nn.LayerNorm(config["emb_dim"])
         self.out_head   = nn.Linear(config["emb_dim"], config["vocab_size"], bias=False)
+        self.out_head.weight = self.embedder.token_embedding.weight
         
         self.name        = "MazeDecoder"
         self.iname       = ''
@@ -120,7 +119,6 @@ class MazeDecoder(nn.Module):
         return logits, extracted_weights
 
 
-
 class MazeDencoder(nn.Module):
     """
     Modelo Encoder-Decoder para a resolução de labirintos.
@@ -139,16 +137,30 @@ class MazeDencoder(nn.Module):
             EncoderTransformerBlock(config) for _ in range(config["n_layers"])
         ])
         
+        self.encoder_norm = nn.LayerNorm(config["emb_dim"])
         self.decoder_blocks = nn.ModuleList([
             CrossDecoderTransformerBlock(config) for _ in range(config["n_layers"])
         ])
         
         self.final_norm = nn.LayerNorm(config["emb_dim"])
         self.out_head   = nn.Linear(config["emb_dim"], config["vocab_size"], bias=False)
+        self.out_head.weight = self.embedder.token_embedding.weight
         
         self.name        = "MazeDencoder"
         self.iname       = ''
         self.context_len = config["context_length"]
+
+    def encode(self, maze_idx: torch.Tensor) -> torch.Tensor:
+        maze_emb = self.drop_emb(self.embedder(maze_idx))
+        ctx = self.encoder_blocks(maze_emb)
+        return self.encoder_norm(ctx)
+
+    def decode_step(self, target_idx: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+        x = self.drop_emb(self.embedder(target_idx))
+        for block in self.decoder_blocks:
+            x = block(x, context=context)
+        x = self.final_norm(x)
+        return self.out_head(x)
 
     def forward(self, maze_idx: torch.Tensor, target_idx: torch.Tensor) -> torch.Tensor:
         """
@@ -156,9 +168,7 @@ class MazeDencoder(nn.Module):
         Recebe o labirinto e a rota em construção,
         avançando com a construção dela.
         """
-
-        maze_emb = self.drop_emb(self.embedder(maze_idx))
-        context  = self.encoder_blocks(maze_emb)
+        context = self.encode(maze_idx)
         
         x = self.drop_emb(self.embedder(target_idx))
         for block in self.decoder_blocks:
@@ -173,8 +183,7 @@ class MazeDencoder(nn.Module):
         Extrai pesos de atenção do Decoder. Retorna um dict com
         a atenção interna e a atenção cruzada.
         """
-        maze_emb = self.drop_emb(self.embedder(maze_idx))
-        context  = self.encoder_blocks(maze_emb)
+        context = self.encode(maze_idx)
         
         x = self.drop_emb(self.embedder(target_idx))
         extracted_weights = None
