@@ -7,3 +7,9 @@
 - Training set agora com início e fim dinâmicos.
 
 - Modelos Encoder, Decoder e Encoder-Decoder.
+
+- Sinusoidal Positional Encoding.
+
+- Improved Padding.
+
+-

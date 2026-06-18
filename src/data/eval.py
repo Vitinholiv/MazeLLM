@@ -24,30 +24,41 @@ class Action(ABC):
     def run(self):
         pass
 
+    @torch.no_grad()
     def solve_maze(self, unsolved_maze: str) -> str:
         self.model.eval()
+        clean_unsolved = unsolved_maze.strip() + '\n'
+        
         if self.is_dencoder:
-            clean_unsolved = unsolved_maze.strip() + '\n'
             maze_ids = torch.tensor(self.tokenizer.encode(clean_unsolved), device=self.device).unsqueeze(0)
             target = torch.tensor([[self.tokenizer.start_id]], device=self.device)
-            ctx = self.model.encoder(maze_ids)
+            ctx = self.model.encode(maze_ids) 
+            
             gen = []
             for _ in range(128):
-                logits = self.model.decoder(target, ctx)[:, -1, :]
+                logits = self.model.decode_step(target, ctx)[:, -1, :] 
                 next_id = logits.argmax(dim=-1).unsqueeze(0)
-                if next_id.item() == self.tokenizer.end_id: break
+                
+                if next_id.item() == self.tokenizer.end_id: 
+                    break
+                    
                 target = torch.cat([target, next_id], dim=1)
                 gen.append(next_id.item())
             return self.tokenizer.decode(gen)
+            
         else:
-            clean_unsolved = unsolved_maze.strip() + '\n'
-            prompt = clean_unsolved + '&\n<START>'
-            idx = torch.tensor(self.tokenizer.encode(prompt), device=self.device).unsqueeze(0)
+            maze_ids = self.tokenizer.encode(clean_unsolved)
+            prompt_ids = maze_ids + [self.tokenizer.sep_id, self.tokenizer.start_id]
+            idx = torch.tensor(prompt_ids, device=self.device).unsqueeze(0)
+            
             gen = []
             for _ in range(128):
                 logits = self.model(idx)[:, -1, :]
                 next_id = logits.argmax(dim=-1).unsqueeze(0)
-                if next_id.item() == self.tokenizer.end_id: break
+                
+                if next_id.item() == self.tokenizer.end_id: 
+                    break
+                    
                 idx = torch.cat([idx, next_id], dim=1)
                 gen.append(next_id.item())
             return self.tokenizer.decode(gen)
@@ -85,7 +96,6 @@ class ActionMetrics(Action):
         avg_loss = total_loss / len(dataloader)
         print(f"\n[2/2] Avaliando métricas... Loss: {avg_loss:.4f}")
         
-        # Adicionado "Muito Curto" aqui
         stats = {
             "Total": len(self.data), "Loss": f"{avg_loss:.4f}", 
             "Exata": 0, "Parede": 0, "Desconexo": 0, 
@@ -104,24 +114,20 @@ class ActionMetrics(Action):
             if clean_pred == clean_exp:
                 stats["Exata"] += 1
             else:
-                # 1. Checagem de "Muito Curto": não chegou no fim E é menor que o esperado
                 if 'E' not in clean_pred and len(clean_pred) < len(clean_exp):
                     stats["Muito Curto"] += 1
-                
-                # 2. Violação de Parede
+
                 p_lines = clean_pred.split('\n')
                 if any(p in 'RLUD' and u == '#' for p, u in zip(pred, unsolved)): 
                     stats["Parede"] += 1
                 
-                # 3. Start e End (Check seguro)
                 idx_s = unsolved.find('S')
                 idx_e = unsolved.find('E')
                 if idx_s != -1 and idx_s < len(pred):
                     if pred[idx_s] not in 'RLUD': stats["Start_S"] += 1
                 if idx_e != -1 and idx_e < len(pred):
                     if pred[idx_e] != 'E': stats["End_E"] += 1
-                
-                # 4. Direção e Desconexão
+
                 dir_inv, desconexo = False, False
                 for r, row in enumerate(p_lines):
                     for c, char in enumerate(row):

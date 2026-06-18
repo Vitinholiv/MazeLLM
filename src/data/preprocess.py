@@ -1,3 +1,5 @@
+import os
+import math
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
@@ -24,33 +26,36 @@ class MazeTokenizer:
         return "".join(self.id_to_char.get(i, '?') for i in ids)
 
 class MazeDataset(Dataset):
-    def __init__(self, txt: str, tokenizer: MazeTokenizer, max_len: int, mode="dencoder"):
+    def __init__(self, txt: str, tokenizer: MazeTokenizer, max_len: int, mode="dencoder", fixed_output=False):
         self.tokenizer, self.mode = tokenizer, mode
         self.samples = []
         
-        # O split original estava procurando por <SEP>, agora usamos o separador real do seu arquivo
         for block in txt.split("\n\n"):
             if '&\n' not in block: 
                 continue
             
-            # Divide usando o delimitador correto que você mostrou
             m_part, r_part = block.split('&\n')
-            
             m_ids = tokenizer.encode(m_part.strip())
-            # Adicionamos o token '&' (sep_id) antes da rota, pois o '&' faz parte do seu formato
             r_ids = tokenizer.encode(r_part.strip())
             
             if self.mode == "single":
-                # Formato: [MAPA, &, <START>, ROTA, <END>]
-                # O '&' (sep_id) já está no seu tokenizer (ID 6)
-                full = m_ids + [tokenizer.sep_id, tokenizer.start_id] + r_ids + [tokenizer.end_id]
+                if fixed_output:
+                    full = m_ids + [tokenizer.sep_id, tokenizer.start_id] + r_ids
+                else:
+                    full = m_ids + [tokenizer.sep_id, tokenizer.start_id] + r_ids + [tokenizer.end_id]
+                    
                 full = (full + [tokenizer.pad_id] * (max_len + 1))[:max_len + 1]
                 self.samples.append((torch.tensor(full[:-1]), torch.tensor(full[1:])))
             
-            else: # dencoder
+            elif self.mode == "dencoder":
                 m_in = (m_ids + [tokenizer.pad_id] * max_len)[:max_len]
                 r_in = ([tokenizer.start_id] + r_ids + [tokenizer.pad_id] * max_len)[:max_len]
-                r_out = (r_ids + [tokenizer.end_id] + [tokenizer.pad_id] * max_len)[:max_len]
+                
+                if fixed_output:
+                    r_out = (r_ids + [tokenizer.pad_id] * max_len)[:max_len]
+                else:
+                    r_out = (r_ids + [tokenizer.end_id] + [tokenizer.pad_id] * max_len)[:max_len]
+                    
                 self.samples.append((torch.tensor(m_in), torch.tensor(r_in), torch.tensor(r_out)))
 
     def _pad(self, ids, length):
@@ -63,12 +68,13 @@ class MazeDataset(Dataset):
         return self.samples[idx]
 
 def build_dataloader(dsrc: str, max_length: int, batch_size: int = 4,
-                     shuffle: bool = True, mode: str = "dencoder") -> DataLoader:
-
-    with open(dsrc) as f:
+                     shuffle: bool = True, mode: str = "dencoder", fixed_output: bool = False) -> DataLoader:
+    abs_path = os.path.abspath(dsrc)
+    with open(abs_path, 'r', encoding='utf-8') as f:
         txt = f.read()
+    
     tokenizer = MazeTokenizer()
-    dataset   = MazeDataset(txt, tokenizer, max_length, mode=mode)
+    dataset   = MazeDataset(txt, tokenizer, max_length, mode=mode, fixed_output=fixed_output)
 
     return DataLoader(
         dataset,
@@ -81,10 +87,15 @@ class MazeEmbedder(nn.Module):
     def __init__(self, vocab_size: int, d_model: int, max_len: int):
         super().__init__()
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        self.pos_embedding   = nn.Embedding(max_len,   d_model)
+        
+        pe = torch.zeros(max_len, d_model)
+        pos = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        
+        pe[:, 0::2] = torch.sin(pos * div)
+        pe[:, 1::2] = torch.cos(pos * div[:pe[:, 1::2].shape[1]]) 
+        
+        self.register_buffer('pe', pe.unsqueeze(0))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        positions = torch.arange(x.size(1), device=x.device)
-        return self.token_embedding(x) + self.pos_embedding(positions)
-    
-
+        return self.token_embedding(x) + self.pe[:, :x.size(1), :]
