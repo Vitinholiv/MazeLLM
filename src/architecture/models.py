@@ -180,7 +180,7 @@ class MazeDencoder(nn.Module):
         extracted_weights = None
         
         if layer_idx < 0:
-            layer_idx += len(self.transformer_blocks)
+            layer_idx += len(self.decoder_blocks)
 
         for i, block in enumerate(self.decoder_blocks):
             if i == layer_idx:
