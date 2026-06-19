@@ -14,6 +14,7 @@ class ModelConfigs:
         "n_layers":       6,
         "drop_rate":      0.1,
         "qkv_bias":       False,
+        "fixed_output":   True,
     }
 
     MazeEncoder = {
@@ -26,6 +27,7 @@ class ModelConfigs:
         "n_layers":       6,
         "drop_rate":      0.1,
         "qkv_bias":       False,
+        "fixed_output":   True,
     }
     
     MazeDencoder = {
@@ -38,6 +40,7 @@ class ModelConfigs:
         "n_layers":       6,
         "drop_rate":      0.1,
         "qkv_bias":       False,
+        "fixed_output":   True,
     }
 
     @classmethod

@@ -42,6 +42,7 @@ class MazeEncoder(nn.Module):
         """
         Executa a passagem do modelo extraindo os pesos de atenção de uma camada específica.
         """
+        self.eval()
         x = self.drop_emb(self.embedder(in_idx))
         extracted_weights = None
         
@@ -101,6 +102,7 @@ class MazeDecoder(nn.Module):
         """
         Executa a passagem do modelo extraindo os pesos de atenção de uma camada específica.
         """
+        self.eval()
         x = self.drop_emb(self.embedder(in_idx))
         extracted_weights = None
         

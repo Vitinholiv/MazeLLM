@@ -1,0 +1,7 @@
+{
+    "model_name": "MazeDencoder_Pathcarver_Completion_None_20260618_152511_1781807296812610700",
+    "best_loss": 0.35374723072059455,
+    "fixed_output": true,
+    "epochs": 1,
+    "lr": 0.0003
+}

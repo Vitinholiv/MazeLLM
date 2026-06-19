@@ -12,12 +12,13 @@ from src.data.preprocess import build_dataloader
 from src.general.helpers import prompt_options, path
 
 class Action(ABC):
-    def __init__(self, model, tokenizer, data, source, device):
+    def __init__(self, model, tokenizer, data, source, device, fixed_output=False):
         self.model = model
         self.tokenizer = tokenizer
         self.data = data
         self.source = source
         self.device = device
+        self.fixed_output = fixed_output
         self.is_dencoder = isinstance(model, MazeDencoder)
 
     @abstractmethod
@@ -32,16 +33,16 @@ class Action(ABC):
         if self.is_dencoder:
             maze_ids = torch.tensor(self.tokenizer.encode(clean_unsolved), device=self.device).unsqueeze(0)
             target = torch.tensor([[self.tokenizer.start_id]], device=self.device)
+            max_gen = len(self.tokenizer.encode(clean_unsolved)) if self.fixed_output else 256
             ctx = self.model.encode(maze_ids) 
             
             gen = []
-            for _ in range(128):
-                logits = self.model.decode_step(target, ctx)[:, -1, :] 
+
+            for _ in range(max_gen):
+                logits = self.model.decode_step(target, ctx)[:, -1, :]
                 next_id = logits.argmax(dim=-1).unsqueeze(0)
-                
-                if next_id.item() == self.tokenizer.end_id: 
+                if not self.fixed_output and next_id.item() == self.tokenizer.end_id:
                     break
-                    
                 target = torch.cat([target, next_id], dim=1)
                 gen.append(next_id.item())
             return self.tokenizer.decode(gen)
@@ -79,7 +80,7 @@ class ActionMetrics(Action):
         print("\n[1/2] Calculando Loss...")
         criterion = nn.CrossEntropyLoss(ignore_index=0)
         mode = "dencoder" if self.is_dencoder else "single"
-        dataloader = build_dataloader(self.source, max_length=self.model.context_len, batch_size=8, shuffle=False, mode=mode)
+        dataloader = build_dataloader(self.source, max_length=self.model.context_len, batch_size=8, shuffle=False, mode=mode, fixed_output=self.fixed_output)
         
         total_loss = 0.0
         for batch in tqdm(dataloader, desc="Loss Teste"):
@@ -153,13 +154,13 @@ class ActionMetrics(Action):
         with open(f'{out_dir}/{self.model.iname}.txt', 'w', encoding='utf-8') as f: f.write(table)
 
 
-def run_evaluation(model, tokenizer, source, device):
+def run_evaluation(model, tokenizer, source, device, fixed_output=False):
     with open(source, 'r', encoding='utf-8') as f: 
         data = [m for m in f.read().split("\n\n") if m.strip()]
     
     actions = {
-        "Sample": ActionSample(model, tokenizer, data, source, device),
-        "Metrics": ActionMetrics(model, tokenizer, data, source, device)
+        "Sample": ActionSample(model, tokenizer, data, source, device, fixed_output),
+        "Metrics": ActionMetrics(model, tokenizer, data, source, device, fixed_output)
     }
 
     while True:

@@ -52,7 +52,7 @@ class path:
     def __fspath__(self):
         return self._val
 
-def prompt_for_file(message, path, extensions=None, recurse=False):
+def prompt_for_file(message, path, extensions=None, recurse=False) -> str|None:
     if not os.path.exists(path):
         print(f"Diretório não encontrado: {path}")
         return None

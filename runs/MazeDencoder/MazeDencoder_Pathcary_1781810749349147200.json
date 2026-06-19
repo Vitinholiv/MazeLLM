@@ -1,0 +1,7 @@
+{
+    "model_name": "MazeDencoder_Pathcary_1781810749349147200",
+    "best_loss": 0.5680838458538056,
+    "fixed_output": true,
+    "epochs": 3,
+    "lr": 0.0003
+}

@@ -1,5 +1,6 @@
 import os
 import time
+import math
 import json
 import torch
 import torch.nn as nn
@@ -8,12 +9,20 @@ from torch.amp.grad_scaler import GradScaler
 from tqdm import tqdm
 from src.architecture.models import MazeEncoder, MazeDecoder, MazeDencoder
 from src.data.preprocess import build_dataloader
+from torch.utils.tensorboard.writer import SummaryWriter
 
-def train(model: nn.Module, src: str,
-          num_epochs: int, device: torch.device, lr: float = 3e-4):
+def train(model: nn.Module, src: str, num_epochs: int, device: torch.device, 
+          lr: float = 3e-4, fixed_output: bool = False):
     
     model.to(device).train()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.1)
+    decay_params = [p for n, p in model.named_parameters() if p.dim() >= 2]
+    no_decay_params = [p for n, p in model.named_parameters() if p.dim() < 2]
+
+    optimizer = torch.optim.AdamW([
+        {'params': decay_params,    'weight_decay': 0.01},
+        {'params': no_decay_params, 'weight_decay': 0.0},
+    ], lr=lr)
+    
     criterion = nn.CrossEntropyLoss(ignore_index=0)
     
     use_amp = device.type == "cuda"
@@ -26,12 +35,47 @@ def train(model: nn.Module, src: str,
         src,
         max_length=model.context_len, 
         batch_size=8, 
-        mode=mode
+        mode=mode,
+        fixed_output=fixed_output
     )
-    
+
+    total_steps = num_epochs * len(dataloader)
+    warmup_steps = min(200, total_steps // 10)
+
+    def lr_lambda(current_step: int):
+        if current_step < warmup_steps:
+            return current_step / max(1, warmup_steps)
+        progress = (current_step - warmup_steps) / max(1, total_steps - warmup_steps)
+        return max(0.1, 0.5 * (1.0 + math.cos(math.pi * progress)))
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
     dataset_name = os.path.basename(src).replace('.txt', '')
     name = f'{model.name}_{dataset_name}_{time.time_ns()}'
     model.iname = name # type: ignore
+
+    writer = SummaryWriter(
+        log_dir=os.path.join("tensorboard", model.name, name)
+    )
+
+    if is_dencoder:
+        maze = torch.randint(0, 13, (1, 64)).to(device)
+        route = torch.randint(0, 13, (1, 64)).to(device)
+        writer.add_graph(model, (maze, route))
+    else:
+        dummy = torch.randint(0, 13, (1, 64)).to(device)
+        writer.add_graph(model, dummy)
+
+    writer.add_text(
+        "config",
+        json.dumps({
+            "model": model.name,
+            "lr": lr,
+            "epochs": num_epochs,
+            "fixed_output": fixed_output,
+            "context_length": model.context_len
+        }, indent=4)
+    )
 
     os.makedirs("runs", exist_ok=True)
     os.makedirs(os.path.join("runs", model.name), exist_ok=True)
@@ -62,20 +106,63 @@ def train(model: nn.Module, src: str,
 
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
+            global_step = epoch * len(dataloader) + progress_bar.n
+            total_norm = nn.utils.clip_grad_norm_(
+                model.parameters(),
+                1.0
+            )
+
+            writer.add_scalar(
+                "Train/GradNorm",
+                total_norm.item(),
+                global_step
+            )
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             scaler.step(optimizer)
             scaler.update()
+            scheduler.step()
             
             total_loss += loss.item()
             progress_bar.set_postfix({'loss': f"{loss.item():.4f}"})
+        
+            writer.add_scalar(
+                "Train/Loss_batch",
+                loss.item(),
+                global_step
+            )
+
+            writer.add_scalar(
+                "Train/LR",
+                scheduler.get_last_lr()[0],
+                global_step
+            )
 
         avg = total_loss / len(dataloader)
+        writer.add_scalar(
+            "Train/Loss_epoch",
+            avg,
+            epoch
+        )
         print(f"Época {epoch + 1:>3}. Loss: {avg:.4f}")
         
         if avg < best_loss:
             best_loss = avg
             torch.save(model.state_dict(), pt_path)
             with open(json_path, "w", encoding="utf-8") as f:
-                json.dump({"model_name": name, "best_loss": best_loss}, f, indent=4)
+                json.dump({
+                    "model_name":   name,
+                    "best_loss":    best_loss,
+                    "fixed_output": fixed_output,
+                    "epochs":       num_epochs,
+                    "lr":           lr,
+                }, f, indent=4)
+        
+        for name_param, param in model.named_parameters():
+            writer.add_histogram(
+                f"Weights/{name_param}",
+                param,
+                epoch
+            )
                 
+    writer.close()
     return model
