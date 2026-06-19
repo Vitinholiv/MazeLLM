@@ -23,7 +23,9 @@ def train_prompt():
 
     epochs = prompt_for_value('Épocas', int)
 
-    train(model, file, epochs, device=device)
+    conf = ModelConfigs.get(model_name) # type: ignore
+    fixed_output = conf.get("fixed_output", True) # type: ignore
+    train(model, file, epochs, device=device, fixed_output=fixed_output)
 
 if __name__ == "__main__":
     train_prompt()

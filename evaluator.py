@@ -6,7 +6,7 @@ from src.data.eval import run_evaluation
 def eval_prompt():
 
     all_models = list(ModelConfigs.get_all().keys())
-    model_name = prompt_options('Selecione o Modelo para avaliar', all_models)
+    model_name = prompt_options('Selecione o Modelo para avaliar', all_models) #type: ignore
     
     tokenizer, model, device = init(model_name, seed=42) #type: ignore
 
@@ -28,7 +28,9 @@ def eval_prompt():
     testfile = prompt_for_file('Dados de Teste', path('datasets/test'), recurse=True)
     if testfile is None: return
 
-    run_evaluation(model, tokenizer, testfile, device)
+    conf = ModelConfigs.get(model_name) #type: ignore
+    fixed_output = conf.get("fixed_output", True) #type: ignore
+    run_evaluation(model, tokenizer, testfile, device, fixed_output=fixed_output)
 
 if __name__ == "__main__":
     eval_prompt()
