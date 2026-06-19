@@ -14,7 +14,8 @@ dependencies = [
     "torch",
     "numpy",
     "tqdm",
-    "matplotlib"
+    "matplotlib",
+    "tensorboard"
 ]
 
 [tool.setuptools.packages.find]
