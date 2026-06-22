@@ -12,6 +12,7 @@ using namespace std;
 namespace fs = std::filesystem;
 
 //-------------------- Parameters --------------------
+
 int NUM_MAZES_TO_GENERATE = 10000;
 string DATA_TYPE = "TRAIN"; // TRAIN | TEST
 string OUTPUT_FILENAME = "example.txt";
@@ -26,7 +27,7 @@ string END_IN_POS = "random"; // random | start | end | top | bottom | left | ri
 
 string LABYRINTH_TOKENS = "individual"; // individual | wall_encoded | free_edges
 
-string OUTPUT_TO_FORMAT = "directions"; // directions | completion | positions
+string OUTPUT_TO_FORMAT = "completion"; // directions | completion
 int MIN_SOLUTION_LENGTH = 25;
 
 map<string, double> CHOSEN_DISTRIBUTION = {
@@ -192,6 +193,7 @@ vector<string> generate_labyrinth_percolation_dfs(int h, int w, double p = 0.15)
 
     for(int i = 1; i < h - 1; i++){
         for(int j = 1; j < w - 1; j++){
+            if(i % 2 == 0 && j % 2 == 0) continue;
             if(maze[i][j] == '#'){
                 bool vertical_connect = (maze[i-1][j] == ' ' && maze[i+1][j] == ' ');
                 bool horizontal_connect = (maze[i][j-1] == ' ' && maze[i][j+1] == ' ');
@@ -387,7 +389,8 @@ string represent_labyrinth(const vector<string>& m){
         if(!e_pos.empty()) result += "<TARGET> " + e_pos + "\n";
     }
 
-    result += "\n<LABYRINTH_END>";
+    if(LABYRINTH_TOKENS != "free_edges") result += "\n";
+    result += "<LABYRINTH_END>";
     return result;
 }
 
@@ -400,8 +403,16 @@ string format_solution(vector<string> maze, const vector<pii>& path){
     const vector<pii>& active_path = is_abstract ? logic_path : path;
 
     if(OUTPUT_TO_FORMAT == "completion"){
-        if(LABYRINTH_TOKENS == "free_edges") return "<ERROR: LABYRINTH AND SOLUTION ARE INCOMPATIBLE>";
-        
+        if(LABYRINTH_TOKENS == "free_edges"){
+            string res = "<SOLUTION_START>\n";
+            for(size_t i = 0; i < logic_path.size() - 1; i++){
+                res += "(" + to_string(logic_path[i].first/2) + "," + to_string(logic_path[i].second/2) + ") <-> (" + 
+                       to_string(logic_path[i+1].first/2) + "," + to_string(logic_path[i+1].second/2) + ")";
+                if(i < logic_path.size() - 2) res += " ; ";
+            }
+            return res + "\n<SOLUTION_END>";
+        }
+
         string res = "<SOLUTION_START>\n";
         for(size_t i = 1; i < path.size() - 1; i++){
             int dr = path[i+1].first - path[i].first;
@@ -420,34 +431,14 @@ string format_solution(vector<string> maze, const vector<pii>& path){
             if(r < maze.size() - 1) res += "\n";
         }
         return res + "\n<SOLUTION_END>";
-    } 
-    else if(OUTPUT_TO_FORMAT == "directions"){
-        if(LABYRINTH_TOKENS == "free_edges"){
-            string res = "<SOLUTION_START>\n";
-            for(size_t i = 0; i < logic_path.size() - 1; i++){
-                res += "(" + to_string(logic_path[i].first/2) + "," + to_string(logic_path[i].second/2) + ") <-> (" + 
-                       to_string(logic_path[i+1].first/2) + "," + to_string(logic_path[i+1].second/2) + ")";
-                if(i < logic_path.size() - 2) res += " ; ";
-            }
-            return res + "\n<SOLUTION_END>";
-        } else {
-            string res = "<SOLUTION_START> ";
-            for(size_t i = 0; i < active_path.size() - 1; i++){
-                int dr = active_path[i+1].first - active_path[i].first;
-                int dc = active_path[i+1].second - active_path[i].second;
-                if(dr > 0) res += "D"; else if(dr < 0) res += "U";
-                else if(dc > 0) res += "R"; else if(dc < 0) res += "L";
-                if(i < active_path.size() - 2) res += " ";
-            }
-            return res + " <SOLUTION_END>";
-        }
-    } 
-    else if(OUTPUT_TO_FORMAT == "positions"){
+    } else if(OUTPUT_TO_FORMAT == "directions"){
         string res = "<SOLUTION_START> ";
-        for(size_t i = 0; i < active_path.size(); i++){
-            int r = is_abstract ? active_path[i].first/2 : active_path[i].first;
-            int c = is_abstract ? active_path[i].second/2 : active_path[i].second;
-            res += "(" + to_string(r) + "," + to_string(c) + ")" + (i < active_path.size() - 1 ? " " : "");
+        for(size_t i = 0; i < active_path.size() - 1; i++){
+            int dr = active_path[i+1].first - active_path[i].first;
+            int dc = active_path[i+1].second - active_path[i].second;
+            if(dr > 0) res += "D"; else if(dr < 0) res += "U";
+            else if(dc > 0) res += "R"; else if(dc < 0) res += "L";
+            if(i < active_path.size() - 2) res += " ";
         }
         return res + " <SOLUTION_END>";
     }
@@ -457,7 +448,7 @@ string format_solution(vector<string> maze, const vector<pii>& path){
 //-------------------- Pipeline Central --------------------
 
 void generate_dataset_file(map<string, double> gen_probs = {}){
-    cout << "Arquitetura: " << LABYRINTH_TOKENS << " | Solucao: " << OUTPUT_TO_FORMAT << endl;
+    cout << "Architecture: " << LABYRINTH_TOKENS << " | Solution Format: " << OUTPUT_TO_FORMAT << endl;
 
     if(LABYRINTH_TOKENS == "individual"){
         OUTPUT_FILENAME = "Simple_" + OUTPUT_FILENAME;
