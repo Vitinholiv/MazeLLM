@@ -25,10 +25,11 @@ class SimpleTokenizer(BaseMazeTokenizer):
         special = {
             '<PAD>': 0, 
             '<LABYRINTH_START>': 1, '<LABYRINTH_END>': 2, 
-            '<SOLUTION_START>': 3, '<SOLUTION_END>': 4
+            '<SOLUTION_START>': 3, '<SOLUTION_END>': 4,
+            '<COMPLETION_START>': 5, '<COMPLETION_END>': 6
         }
-        grid = {'#': 5, ' ': 6, 'S': 7, 'E': 8, '\n': 9}
-        dirs = {'L': 10, 'R': 11, 'U': 12, 'D': 13, '*': 14} 
+        grid = {'#': 7, ' ': 8, 'S': 9, 'E': 10, '\n': 11}
+        dirs = {'L': 12, 'R': 13, 'U': 14, 'D': 15, '*': 16}
         
         vocab = {**special, **grid, **dirs}
         super().__init__(vocab)
@@ -71,12 +72,13 @@ class WallEncodedTokenizer(BaseMazeTokenizer):
         special = {
             '<PAD>': 0, 
             '<LABYRINTH_START>': 1, '<LABYRINTH_END>': 2, 
-            '<SOLUTION_START>': 3, '<SOLUTION_END>': 4
+            '<SOLUTION_START>': 3, '<SOLUTION_END>': 4,
+            '<COMPLETION_START>': 5, '<COMPLETION_END>': 6
         }
-        isolated = {'L': 5, 'R': 6, 'U': 7, 'D': 8, '\n': 9}
+        isolated = {'L': 7, 'R': 8, 'U': 9, 'D': 10, '\n': 11}
         
         grid_states = {}
-        idx = 10
+        idx = 12
         for base in ['.', 'S', 'E', 'L', 'R', 'U', 'D', '*']:
             for u in range(2):
                 for d in range(2):
@@ -120,7 +122,7 @@ class WallEncodedTokenizer(BaseMazeTokenizer):
         return "".join(res).replace(" \n", "\n").strip()
 
 class EdgeListTokenizer(BaseMazeTokenizer):
-    def __init__(self):
+    def __init__(self, max_grid_size=30):
         special = {
             '<PAD>': 0, 
             '<LABYRINTH_START>': 1, '<LABYRINTH_END>': 2, 
@@ -128,15 +130,21 @@ class EdgeListTokenizer(BaseMazeTokenizer):
             '<ORIGIN>': 5, '<TARGET>': 6,
             '<SOLUTION_START>': 7, '<SOLUTION_END>': 8
         }
-        symbols = {'(': 9, ')': 10, ',': 11, '<->': 12, ';': 13, '\n': 14}
-        numbers = {str(i): 15 + i for i in range(100)} 
-        dirs    = {'L': 115, 'R': 116, 'U': 117, 'D': 118}
+        symbols = {'<->': 9, ';': 10, '\n': 11}
+        dirs    = {'L': 12, 'R': 13, 'U': 14, 'D': 15}
         
-        vocab = {**special, **symbols, **numbers, **dirs}
+        coords = {}
+        idx = 16
+        for r in range(max_grid_size):
+            for c in range(max_grid_size):
+                coords[f"({r},{c})"] = idx
+                idx += 1
+        
+        vocab = {**special, **symbols, **dirs, **coords}
         super().__init__(vocab)
 
     def encode(self, text: str) -> list:
-        tokens = re.findall(r'<[A-Z_]+>|<->|[(),;LURD\n]|\d+', text)
+        tokens = re.findall(r'<[A-Z_]+>|<->|[;LURD\n]|\(\d+,\d+\)', text)
         ids = [self.char_to_id[t] for t in tokens if t in self.char_to_id]
         return ids
 
@@ -161,24 +169,31 @@ class MazeDataset(Dataset):
         self.mode = mode
         self.samples = []
         
-        blocks = [b for b in txt.split("<LABYRINTH_START>") if b.strip()]
+        blocks = [b.strip() for b in txt.split("\n\n") if b.strip()]
         
         for block in blocks:
-            full_block = "<LABYRINTH_START>" + block
-            
-            if '<SOLUTION_START>' not in full_block:
+            if '<SOLUTION_START>' in block:
+                split_idx = block.index('<SOLUTION_START>')
+            elif '<COMPLETION_START>' in block:
+                split_idx = block.index('<COMPLETION_START>')
+            else:
                 continue
                 
-            split_idx = full_block.index('<SOLUTION_START>')
-            m_part = full_block[:split_idx].strip()
-            r_part = full_block[split_idx:].strip()
+            m_part = block[:split_idx].strip()
+            r_part = block[split_idx:].strip()
+            
             m_ids = tokenizer.encode(m_part)
             r_ids = tokenizer.encode(r_part)
             
             if self.mode == "single":
                 full = m_ids + r_ids
                 full = (full + [tokenizer.pad_id] * (max_len + 1))[:max_len + 1]
-                self.samples.append((torch.tensor(full[:-1]), torch.tensor(full[1:])))
+                
+                x = torch.tensor(full[:-1])
+                y = torch.tensor(full[1:])
+                y[:len(m_ids) - 1] = tokenizer.pad_id
+                
+                self.samples.append((x, y))
             
             elif self.mode == "dencoder":
                 m_in = (m_ids + [tokenizer.pad_id] * max_len)[:max_len]
