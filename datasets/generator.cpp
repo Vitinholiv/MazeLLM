@@ -25,7 +25,7 @@ string PADDING_TYPE = "evenly"; // evenly | random | start | end | none
 string START_IN_POS = "random"; // random | start | end | top | bottom | left | right 
 string END_IN_POS = "random"; // random | start | end | top | bottom | left | right 
 
-string LABYRINTH_TOKENS = "individual"; // individual | wall_encoded | free_edges
+string LABYRINTH_TOKENS = "wall_encoded"; // individual | wall_encoded | free_edges
 
 string OUTPUT_TO_FORMAT = "completion"; // directions | completion
 int MIN_SOLUTION_LENGTH = 25;
@@ -413,7 +413,6 @@ string format_solution(vector<string> maze, const vector<pii>& path){
             return res + "\n<SOLUTION_END>";
         }
 
-        string res = "<SOLUTION_START>\n";
         for(size_t i = 1; i < path.size() - 1; i++){
             int dr = path[i+1].first - path[i].first;
             int dc = path[i+1].second - path[i].second;
@@ -422,16 +421,40 @@ string format_solution(vector<string> maze, const vector<pii>& path){
             else if(dc > 0) dir = 'R'; else if(dc < 0) dir = 'L';
             maze[path[i].first][path[i].second] = dir;
         }
-        
-        for(int r = 0; r < maze.size(); r++){
-            for(int c = 0; c < maze[0].size(); c++){
-                res += maze[r][c];
-                if(c < maze[0].size() - 1) res += " ";
+
+        string res = "<SOLUTION_START>\n";
+        if(LABYRINTH_TOKENS == "wall_encoded"){
+            int h = maze.size(), w = maze[0].size();
+            for(int r = 1; r < h; r += 2){
+                for(int c = 1; c < w; c += 2){
+                    char ch = maze[r][c];
+                    if(ch == ' ') ch = '.';
+                    
+                    int U = 0, D = 0, L = 0, R = 0;
+                    if(maze[r-1][c] != '#') U = 1;
+                    if(maze[r+1][c] != '#') D = 1;
+                    if(maze[r][c-1] != '#') L = 1;
+                    if(maze[r][c+1] != '#') R = 1;
+                    
+                    res += string(1, ch) + to_string(U) + to_string(D) + to_string(L) + to_string(R);
+                    if(c < w - 2) res += " "; 
+                }
+                if(r < h - 2) res += "\n";
             }
-            if(r < maze.size() - 1) res += "\n";
         }
+        else {
+            for(int r = 0; r < maze.size(); r++){
+                for(int c = 0; c < maze[0].size(); c++){
+                    res += maze[r][c];
+                    if(c < maze[0].size() - 1) res += " ";
+                }
+                if(r < maze.size() - 1) res += "\n";
+            }
+        }
+
         return res + "\n<SOLUTION_END>";
-    } else if(OUTPUT_TO_FORMAT == "directions"){
+    } 
+    else if(OUTPUT_TO_FORMAT == "directions"){
         string res = "<SOLUTION_START> ";
         for(size_t i = 0; i < active_path.size() - 1; i++){
             int dr = active_path[i+1].first - active_path[i].first;

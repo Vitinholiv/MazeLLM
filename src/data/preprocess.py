@@ -3,63 +3,189 @@ import math
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+import re
 
-class MazeTokenizer:
-    def __init__(self):
-        self.special = {'<PAD>': 0, '<START>': 1, '<END>': 2, '<SEP>': 3}
-        self.grid    = {'#': 4, ' ': 5, 'S': 6, 'E': 7, '\n': 8}
-        self.dir     = {'L': 9, 'R': 10, 'U': 11, 'D': 12}
-        
-        self.char_to_id = {**self.special, **self.grid, **self.dir}
+# Tokenizers
+
+class BaseMazeTokenizer:
+    def __init__(self, vocab_dict):
+        self.char_to_id = vocab_dict
         self.id_to_char = {v: k for k, v in self.char_to_id.items()}
-        
-        self.pad_id   = self.char_to_id['<PAD>']
-        self.sep_id   = self.char_to_id['<SEP>']
-        self.start_id = self.char_to_id['<START>']
-        self.end_id   = self.char_to_id['<END>']
+        self.pad_id = self.char_to_id['<PAD>']
         self.vocab_size = len(self.char_to_id)
 
     def encode(self, text: str) -> list:
-        return [self.char_to_id.get(c, self.pad_id) for c in text if c in self.char_to_id]
+        raise NotImplementedError()
     
     def decode(self, ids: list) -> str:
         return "".join(self.id_to_char.get(i, '?') for i in ids)
 
+class SimpleTokenizer(BaseMazeTokenizer):
+    def __init__(self):
+        special = {
+            '<PAD>': 0, 
+            '<LABYRINTH_START>': 1, '<LABYRINTH_END>': 2, 
+            '<SOLUTION_START>': 3, '<SOLUTION_END>': 4
+        }
+        grid = {'#': 5, ' ': 6, 'S': 7, 'E': 8, '\n': 9}
+        dirs = {'L': 10, 'R': 11, 'U': 12, 'D': 13, '*': 14} 
+        
+        vocab = {**special, **grid, **dirs}
+        super().__init__(vocab)
+
+    def encode(self, text: str) -> list:
+        ids = []
+        for line in text.strip().split('\n'):
+            line = line.strip()
+            if not line: continue
+            
+            if line.startswith('<') and line.endswith('>'):
+                for t in line.split(' '):
+                    if t in self.char_to_id:
+                        ids.append(self.char_to_id[t])
+            else:
+                for t in line.split(' '):
+                    if t in self.char_to_id:
+                        ids.append(self.char_to_id[t])
+            
+            ids.append(self.char_to_id['\n'])
+            
+        if ids and ids[-1] == self.char_to_id['\n']:
+            ids.pop()
+        return ids
+    
+    def decode(self, ids: list) -> str:
+        res = []
+        for i in ids:
+            char = self.id_to_char.get(i, '?')
+            if char.startswith('<') and char != '<PAD>':
+                res.append(f"\n{char}\n")
+            elif char not in ['\n', '<PAD>']:
+                res.append(char + ' ')
+            else:
+                res.append(char)
+        return "".join(res).replace(" \n", "\n").strip()
+
+class WallEncodedTokenizer(BaseMazeTokenizer):
+    def __init__(self):
+        special = {
+            '<PAD>': 0, 
+            '<LABYRINTH_START>': 1, '<LABYRINTH_END>': 2, 
+            '<SOLUTION_START>': 3, '<SOLUTION_END>': 4
+        }
+        isolated = {'L': 5, 'R': 6, 'U': 7, 'D': 8, '\n': 9}
+        
+        grid_states = {}
+        idx = 10
+        for base in ['.', 'S', 'E', 'L', 'R', 'U', 'D', '*']:
+            for u in range(2):
+                for d in range(2):
+                    for l in range(2):
+                        for r in range(2):
+                            grid_states[f"{base}{u}{d}{l}{r}"] = idx
+                            idx += 1
+                            
+        vocab = {**special, **isolated, **grid_states}
+        super().__init__(vocab)
+
+    def encode(self, text: str) -> list:
+        ids = []
+        for line in text.strip().split('\n'):
+            line = line.strip()
+            if not line: continue
+            
+            for t in line.split(' '):
+                if t in self.char_to_id:
+                    ids.append(self.char_to_id[t])
+                    
+            if not line.startswith('<'):
+                ids.append(self.char_to_id['\n'])
+                
+        if ids and ids[-1] == self.char_to_id['\n']:
+            ids.pop()
+        return ids
+
+    def decode(self, ids: list) -> str:
+        res = []
+        for i in ids:
+            char = self.id_to_char.get(i, '?')
+            if char.startswith('<') and char != '<PAD>':
+                res.append(f"\n{char}\n")
+            elif len(char) == 5:
+                res.append(char + ' ')
+            elif char in ['L', 'R', 'U', 'D', '*']:
+                res.append(char + ' ')
+            else:
+                res.append(char)
+        return "".join(res).replace(" \n", "\n").strip()
+
+class EdgeListTokenizer(BaseMazeTokenizer):
+    def __init__(self):
+        special = {
+            '<PAD>': 0, 
+            '<LABYRINTH_START>': 1, '<LABYRINTH_END>': 2, 
+            '<ADJLIST_START>': 3, '<ADJLIST_END>': 4,
+            '<ORIGIN>': 5, '<TARGET>': 6,
+            '<SOLUTION_START>': 7, '<SOLUTION_END>': 8
+        }
+        symbols = {'(': 9, ')': 10, ',': 11, '<->': 12, ';': 13, '\n': 14}
+        numbers = {str(i): 15 + i for i in range(100)} 
+        dirs    = {'L': 115, 'R': 116, 'U': 117, 'D': 118}
+        
+        vocab = {**special, **symbols, **numbers, **dirs}
+        super().__init__(vocab)
+
+    def encode(self, text: str) -> list:
+        tokens = re.findall(r'<[A-Z_]+>|<->|[(),;LURD\n]|\d+', text)
+        ids = [self.char_to_id[t] for t in tokens if t in self.char_to_id]
+        return ids
+
+    def decode(self, ids: list) -> str:
+        res = []
+        for i in ids:
+            char = self.id_to_char.get(i, '?')
+            if char == '<PAD>': continue
+            
+            if char == '<->': res.append(' <-> ')
+            elif char == ';': res.append(' ; ')
+            elif char.startswith('<'): res.append(f"\n{char}\n")
+            else: res.append(char)
+            
+        return "".join(res).replace("\n\n", "\n").strip()
+    
+# Dataset and Dataloader
+
 class MazeDataset(Dataset):
-    def __init__(self, txt: str, tokenizer: MazeTokenizer, max_len: int, mode="dencoder", fixed_output=False):
-        self.tokenizer, self.mode = tokenizer, mode
+    def __init__(self, txt: str, tokenizer: BaseMazeTokenizer, max_len: int, mode="dencoder"):
+        self.tokenizer = tokenizer
+        self.mode = mode
         self.samples = []
         
-        for block in txt.split("\n\n"):
-            if '&\n' not in block: 
-                continue
+        blocks = [b for b in txt.split("<LABYRINTH_START>") if b.strip()]
+        
+        for block in blocks:
+            full_block = "<LABYRINTH_START>" + block
             
-            m_part, r_part = block.split('&\n')
-            m_ids = tokenizer.encode(m_part.strip())
-            r_ids = tokenizer.encode(r_part.strip())
+            if '<SOLUTION_START>' not in full_block:
+                continue
+                
+            split_idx = full_block.index('<SOLUTION_START>')
+            m_part = full_block[:split_idx].strip()
+            r_part = full_block[split_idx:].strip()
+            m_ids = tokenizer.encode(m_part)
+            r_ids = tokenizer.encode(r_part)
             
             if self.mode == "single":
-                if fixed_output:
-                    full = m_ids + [tokenizer.sep_id, tokenizer.start_id] + r_ids
-                else:
-                    full = m_ids + [tokenizer.sep_id, tokenizer.start_id] + r_ids + [tokenizer.end_id]
-                    
+                full = m_ids + r_ids
                 full = (full + [tokenizer.pad_id] * (max_len + 1))[:max_len + 1]
                 self.samples.append((torch.tensor(full[:-1]), torch.tensor(full[1:])))
             
             elif self.mode == "dencoder":
                 m_in = (m_ids + [tokenizer.pad_id] * max_len)[:max_len]
-                r_in = ([tokenizer.start_id] + r_ids + [tokenizer.pad_id] * max_len)[:max_len]
+                r_in = (r_ids + [tokenizer.pad_id] * max_len)[:max_len]
+                r_out = (r_ids[1:] + [tokenizer.pad_id] * max_len)[:max_len]
                 
-                if fixed_output:
-                    r_out = (r_ids + [tokenizer.pad_id] * max_len)[:max_len]
-                else:
-                    r_out = (r_ids + [tokenizer.end_id] + [tokenizer.pad_id] * max_len)[:max_len]
-                    
                 self.samples.append((torch.tensor(m_in), torch.tensor(r_in), torch.tensor(r_out)))
-
-    def _pad(self, ids, length):
-        return (ids + [self.tokenizer.pad_id] * length)[:length]
 
     def __len__(self):
         return len(self.samples)
@@ -67,21 +193,26 @@ class MazeDataset(Dataset):
     def __getitem__(self, idx):
         return self.samples[idx]
 
-def build_dataloader(dsrc: str, max_length: int, batch_size: int = 4,
-                     shuffle: bool = True, mode: str = "dencoder", fixed_output: bool = False) -> DataLoader:
+def build_dataloader(dsrc: str, tokenizer_type: str, max_length: int, batch_size: int = 4,
+                     shuffle: bool = True, mode: str = "dencoder") -> DataLoader:
     abs_path = os.path.abspath(dsrc)
     with open(abs_path, 'r', encoding='utf-8') as f:
         txt = f.read()
     
-    tokenizer = MazeTokenizer()
-    dataset   = MazeDataset(txt, tokenizer, max_length, mode=mode, fixed_output=fixed_output)
+    if tokenizer_type == "individual":
+        tokenizer = SimpleTokenizer()
+    elif tokenizer_type == "wall_encoded":
+        tokenizer = WallEncodedTokenizer()
+    elif tokenizer_type == "free_edges":
+        tokenizer = EdgeListTokenizer()
+    else:
+        raise ValueError("Invalid labyrinth token type, choose between 'individual', 'wall_encoded' and 'free_edges'.")
+        
+    dataset = MazeDataset(txt, tokenizer, max_length, mode=mode)
 
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        pin_memory=torch.cuda.is_available(),
-    )
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, pin_memory=True)
+
+# Embedder
 
 class MazeEmbedder(nn.Module):
     def __init__(self, vocab_size: int, d_model: int, max_len: int):
