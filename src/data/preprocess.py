@@ -18,62 +18,92 @@ class BaseMazeTokenizer:
         raise NotImplementedError()
     
     def decode(self, ids: list) -> str:
-        return "".join(self.id_to_char.get(i, '?') for i in ids)
+        raise NotImplementedError()
 
 class SimpleTokenizer(BaseMazeTokenizer):
-    def __init__(self):
-        special = {
+    def __init__(self, size: int, directions: bool):
+        self.special = {
             '<PAD>': 0, 
             '<LABYRINTH_START>': 1, '<LABYRINTH_END>': 2, 
-            '<SOLUTION_START>': 3, '<SOLUTION_END>': 4,
-            '<COMPLETION_START>': 5, '<COMPLETION_END>': 6
+            '<SOLUTION_START>': 3, '<SOLUTION_END>': 4
         }
-        grid = {'#': 7, ' ': 8, 'S': 9, 'E': 10, '\n': 11}
-        dirs = {'L': 12, 'R': 13, 'U': 14, 'D': 15, '*': 16}
-        
-        vocab = {**special, **grid, **dirs}
+        self.grid = {'#': 7, ' ': 8, 'S': 9, 'E': 10}
+        self.dirs = {'L': 11, 'R': 12, 'U': 13, 'D': 14}
+        self.size = size
+        self.directions = directions
+
+        vocab = {**self.special, **self.grid, **self.dirs}
         super().__init__(vocab)
 
     def encode(self, text: str) -> list:
         ids = []
-        for line in text.strip().split('\n'):
+        for line in text.split('\n'):
             line = line.strip()
             if not line: continue
             
-            if line.startswith('<') and line.endswith('>'):
-                for t in line.split(' '):
-                    if t in self.char_to_id:
-                        ids.append(self.char_to_id[t])
+            if line in self.special.keys():
+                ids.append(self.char_to_id[line])
+            elif '<' not in line:
+                for i in range(0,len(line),2):
+                    ids.append(self.char_to_id[line[i]])
             else:
-                for t in line.split(' '):
-                    if t in self.char_to_id:
-                        ids.append(self.char_to_id[t])
-            
-            ids.append(self.char_to_id['\n'])
-            
-        if ids and ids[-1] == self.char_to_id['\n']:
-            ids.pop()
+                tks = line.split(' ')
+                for tk in tks:
+                    ids.append(self.char_to_id[tk])            
         return ids
     
     def decode(self, ids: list) -> str:
-        res = []
-        for i in ids:
-            char = self.id_to_char.get(i, '?')
-            if char.startswith('<') and char != '<PAD>':
-                res.append(f"\n{char}\n")
-            elif char not in ['\n', '<PAD>']:
-                res.append(char + ' ')
-            else:
-                res.append(char)
-        return "".join(res).replace(" \n", "\n").strip()
+        
+        nx_li = ids.index(1) if 1 in ids else -1
+        nx_le = ids.index(2) if 2 in ids else -1
+        nx_si = ids.index(3) if 3 in ids else -1
+        nx_se = ids.index(4) if 4 in ids else -1
 
+        if nx_li == -1 or nx_le == -1 or nx_si == -1 or nx_se == -1:
+            return f"<INVALID_LABYRINTH: {nx_li}|{nx_le} , {nx_si}|{nx_se}>"
+        
+        if self.directions == False:
+            qt_lab = (nx_le - nx_li - 1)
+            qt_sol = (nx_se - nx_si - 1)
+            if qt_lab != self.size**2 or qt_sol != self.size**2:
+                return f"<INVALID_LABYRINTH: {qt_lab} x {qt_sol}>"
+        else:
+            qt_lab = (nx_le - nx_li - 1)
+            if qt_lab != self.size**2:
+                return f"<INVALID_LABYRINTH: {qt_lab}!>"
+            
+        res = []; idx = 0
+        for i in range(len(ids)):
+            char = self.id_to_char.get(ids[i], '?')
+            if char == '<LABYRINTH_START>' or char == '<SOLUTION_START>' or char == '<LABYRINTH_END>':
+                res.append(char+'\n')
+            elif char == '<SOLUTION_END>':
+                if self.directions:
+                    res.append('\n')
+                res.append(char)
+            else:
+                if self.directions == False or char not in self.dirs:
+                    idx += 1
+                    res.append(char)
+                    if idx < self.size:
+                        res.append(' ')
+                    else:
+                        res.append('\n')
+                        idx = 0
+                else:
+                    res.append(char)
+                    if i < nx_se-1:
+                        res.append(' ')
+
+        return "".join(res)
+
+'''
 class WallEncodedTokenizer(BaseMazeTokenizer):
     def __init__(self):
         special = {
             '<PAD>': 0, 
             '<LABYRINTH_START>': 1, '<LABYRINTH_END>': 2, 
-            '<SOLUTION_START>': 3, '<SOLUTION_END>': 4,
-            '<COMPLETION_START>': 5, '<COMPLETION_END>': 6
+            '<SOLUTION_START>': 3, '<SOLUTION_END>': 4
         }
         isolated = {'L': 7, 'R': 8, 'U': 9, 'D': 10, '\n': 11}
         
@@ -245,3 +275,4 @@ class MazeEmbedder(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.token_embedding(x) + self.pe[:, :x.size(1), :]
+'''
