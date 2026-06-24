@@ -30,9 +30,11 @@ class MazeEncoder(nn.Module):
         self.out_head    = nn.Linear(config["emb_dim"], config["vocab_size"], bias=False)
         self.out_head.weight = self.embedder.token_embedding.weight
         
-        self.name        = "MazeEncoder"
-        self.iname       = ''
-        self.context_len = config["context_length"]
+        self.name          = "MazeEncoder"
+        self.iname         = ''
+        self.context_len   = config["context_length"]
+        self.tokenizer_type = config["tokenizer_type"]
+        self.tasks          = config["tasks"]
 
     def forward(self, in_idx: torch.Tensor) -> torch.Tensor:
         x = self.drop_emb(self.embedder(in_idx))
@@ -82,9 +84,11 @@ class MazeDecoder(nn.Module):
         self.out_head   = nn.Linear(config["emb_dim"], config["vocab_size"], bias=False)
         self.out_head.weight = self.embedder.token_embedding.weight
         
-        self.name        = "MazeDecoder"
-        self.iname       = ''
-        self.context_len = config["context_length"]
+        self.name          = "MazeDecoder"
+        self.iname         = ''
+        self.context_len   = config["context_length"]
+        self.tokenizer_type = config["tokenizer_type"]
+        self.tasks          = config["tasks"]
 
     def forward(self, in_idx: torch.Tensor) -> torch.Tensor:
         x = self.drop_emb(self.embedder(in_idx))
@@ -140,9 +144,11 @@ class MazeDencoder(nn.Module):
         self.out_head   = nn.Linear(config["emb_dim"], config["vocab_size"], bias=False)
         self.out_head.weight = self.embedder.token_embedding.weight
         
-        self.name        = "MazeDencoder"
-        self.iname       = ''
-        self.context_len = config["context_length"]
+        self.name          = "MazeDencoder"
+        self.iname         = ''
+        self.context_len   = config["context_length"]
+        self.tokenizer_type = config["tokenizer_type"]
+        self.tasks          = config["tasks"]
 
     def encode(self, maze_idx: torch.Tensor) -> torch.Tensor:
         maze_emb = self.drop_emb(self.embedder(maze_idx))
