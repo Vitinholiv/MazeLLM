@@ -25,7 +25,7 @@ string PADDING_TYPE = "evenly"; // evenly | random | start | end | none
 string START_IN_POS = "random"; // random | start | end | top | bottom | left | right 
 string END_IN_POS = "random"; // random | start | end | top | bottom | left | right 
 
-string LABYRINTH_TOKENS = "wall_encoded"; // individual | wall_encoded | free_edges
+string LABYRINTH_TOKENS = "individual"; // individual | wall_encoded | free_edges
 
 string OUTPUT_TO_FORMAT = "completion"; // directions | completion
 int MIN_SOLUTION_LENGTH = 25;
