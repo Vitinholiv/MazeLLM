@@ -12,6 +12,7 @@ from torch.utils.tensorboard.writer import SummaryWriter
 
 from src.architecture.models import MazeDencoder
 from src.data.preprocess import build_dataloader
+from src.general.configs import OutputType
 
 PAD_ID = 0
 def compute_loss(logits: torch.Tensor, targets: torch.Tensor, fixed_output: bool) -> torch.Tensor:
@@ -44,7 +45,10 @@ def train(model: nn.Module, dataset: str, epochs: int, device: torch.device,
             f"'{model.name}' não suporta a tarefa '{task}'. "
             f"Tarefas disponíveis: {list(model.tasks.keys())}."
         )
-    fixed_output = model.tasks[task]
+
+    fixed_output = (
+        model.tasks[task] == OutputType.FIXED_OUTPUT
+    )
 
     model.to(device).train()
 
@@ -100,12 +104,12 @@ def train(model: nn.Module, dataset: str, epochs: int, device: torch.device,
         print(f"Aviso: não foi possível registrar o grafo do modelo no TensorBoard ({e}).")
 
     writer.add_text("config", json.dumps({
-        "model":          model.name,
-        "task":           task,
-        "fixed_output":   fixed_output,
-        "lr":             lr,
-        "epochs":         epochs,
-        "batch_size":     batch_size,
+        "model": model.name,
+        "task": task,
+        "fixed_output": fixed_output,
+        "lr": lr,
+        "epochs": epochs,
+        "batch_size": batch_size,
         "context_length": model.context_len,
     }, indent=4))
 
@@ -161,12 +165,17 @@ def train(model: nn.Module, dataset: str, epochs: int, device: torch.device,
             torch.save(model.state_dict(), pt_path)
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump({
-                    "model_name":   run_name,
-                    "task":         task,
+                    "model_name": run_name,
+                    "model": model.name,
+                    "dataset": dataset,
+                    "tokenizer": model.tokenizer_type,
+                    "task": task,
                     "fixed_output": fixed_output,
-                    "best_loss":    best_loss,
-                    "epochs":       epochs,
-                    "lr":           lr,
+                    "best_loss": best_loss,
+                    "epochs": epochs,
+                    "lr": lr,
+                    "batch_size": batch_size,
+                    "context_length": model.context_len,
                 }, f, indent=4)
 
         for param_name, param in model.named_parameters():
