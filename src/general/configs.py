@@ -9,6 +9,7 @@ class ModelConfigs:
         "name":           "SimpleDecoder",
         "class":          MazeDecoder,
         "tokenizer":      SimpleTokenizer,
+        "tokenizer_type": "individual",
         "dataset_mode":   "decoder",
         "tasks":          ["completion", "directions"],
         "context_length": 886,
@@ -38,7 +39,7 @@ def init(model_name: str, directions_task: bool = False, seed: int = 42):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     conf = ModelConfigs.get(model_name)
     if conf is None:
-        raise ValueError(f"Configuração {model_name} não encontrada.")
+        raise ValueError(f"Configuration {model_name} not found.")
 
     tokenizer = conf["tokenizer"](conf["lab_size"],directions_task)
     conf["vocab_size"] = tokenizer.vocab_size

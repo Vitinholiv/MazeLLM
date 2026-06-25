@@ -236,7 +236,7 @@ class MazeDataset(Dataset):
     def __getitem__(self, idx):
         return self.samples[idx]
 
-def build_dataloader(dsrc: str, tokenizer_type: str, context_length: int, batch_size: int = 4,
+def build_dataloader(dsrc: str, tokenizer_type: str, context_length: int, batch_size: int = 64,
                      shuffle: bool = True, mode: str = "decoder", lab_size: int = 21, directions_task: bool = False) -> DataLoader:
     abs_path = os.path.abspath(dsrc)
     with open(abs_path, 'r', encoding='utf-8') as f:
