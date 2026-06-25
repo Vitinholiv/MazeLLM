@@ -455,7 +455,7 @@ string format_solution(vector<string> maze, const vector<pii>& path){
         return res + "\n<SOLUTION_END>";
     } 
     else if(OUTPUT_TO_FORMAT == "directions"){
-        string res = "<SOLUTION_START> ";
+        string res = "<SOLUTION_START>\n";
         for(size_t i = 0; i < active_path.size() - 1; i++){
             int dr = active_path[i+1].first - active_path[i].first;
             int dc = active_path[i+1].second - active_path[i].second;
@@ -463,7 +463,7 @@ string format_solution(vector<string> maze, const vector<pii>& path){
             else if(dc > 0) res += "R"; else if(dc < 0) res += "L";
             if(i < active_path.size() - 2) res += " ";
         }
-        return res + " <SOLUTION_END>";
+        return res + "\n<SOLUTION_END>";
     }
     return "<ERROR: FORMAT UNKNOWN>";
 }
