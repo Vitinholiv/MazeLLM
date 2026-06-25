@@ -27,8 +27,8 @@ class SimpleTokenizer(BaseMazeTokenizer):
             '<LABYRINTH_START>': 1, '<LABYRINTH_END>': 2, 
             '<SOLUTION_START>': 3, '<SOLUTION_END>': 4
         }
-        self.grid = {'#': 7, ' ': 8, 'S': 9, 'E': 10}
-        self.dirs = {'L': 11, 'R': 12, 'U': 13, 'D': 14}
+        self.grid = {'#': 5, ' ': 6, 'S': 7, 'E': 8}
+        self.dirs = {'L': 9, 'R': 10, 'U': 11, 'D': 12}
         self.size = size
         self.directions = directions
 
@@ -170,7 +170,7 @@ class EdgeListTokenizer(BaseMazeTokenizer):
         super().__init__(vocab)
 
     def encode(self, text: str) -> list:
-        tokens = re.findall(r'<[A-Z_]+>|<->|[;LURD\n]|\(\d+,\d+\)', text)
+        tokens = re.findall(r'<[A-Z_]+>|<->|[;LURD\n]|\\(\\d+,\\d+\\)', text)
         ids = [self.char_to_id[t] for t in tokens if t in self.char_to_id]
         return ids
 
@@ -244,10 +244,6 @@ def build_dataloader(dsrc: str, tokenizer_type: str, context_length: int, batch_
     
     if tokenizer_type == "individual":
         tokenizer = SimpleTokenizer(lab_size,directions_task)
-    #elif tokenizer_type == "wall_encoded":
-    #    tokenizer = WallEncodedTokenizer()
-    #elif tokenizer_type == "free_edges":
-    #    tokenizer = EdgeListTokenizer()
     else:
         raise ValueError("Invalid labyrinth token type, choose between 'individual', 'wall_encoded' and 'free_edges'.")
         
