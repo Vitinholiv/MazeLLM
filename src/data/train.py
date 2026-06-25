@@ -12,8 +12,6 @@ def train(config: str, dataset: str, directions_task: bool, batch_size: int = 64
     run_id = time.time_ns()
     tokenizer, model, device = init(config, directions_task)
     conf = ModelConfigs.get(config)
-    if conf is None:
-        raise ValueError(f"Configuration {conf} not found.")
 
     dataloader = build_dataloader(
         dsrc=dataset,
@@ -72,3 +70,12 @@ def train(config: str, dataset: str, directions_task: bool, batch_size: int = 64
 
     for epoch in range(1, epochs+1):
         train_one_epoch(epoch)
+
+if __name__ == "__main__":
+    train(
+        'SimpleDecoder',
+        'datasets/train/completion/Simple_dataset.txt',
+        False,
+        batch_size=32,
+        epochs=20
+    )

@@ -56,6 +56,7 @@ class SimpleTokenizer(BaseMazeTokenizer):
         nx_se = ids.index(4) if 4 in ids else -1
 
         if nx_li == -1 or nx_le == -1 or nx_si == -1 or nx_se == -1:
+            return "|".join([self.id_to_char[idd] for idd in ids])
             return f"<INVALID_LABYRINTH: {nx_li}|{nx_le} , {nx_si}|{nx_se}>"
         
         if self.directions == False:
