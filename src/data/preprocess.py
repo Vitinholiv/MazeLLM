@@ -45,11 +45,7 @@ class SimpleTokenizer(BaseMazeTokenizer):
                 ids.append(self.char_to_id[line])
             elif '<' not in line:
                 for i in range(0,len(line),2):
-                    ids.append(self.char_to_id[line[i]])
-            else:
-                tks = line.split(' ')
-                for tk in tks:
-                    ids.append(self.char_to_id[tk])            
+                    ids.append(self.char_to_id[line[i]])        
         return ids
     
     def decode(self, ids: list) -> str:
@@ -190,45 +186,47 @@ class EdgeListTokenizer(BaseMazeTokenizer):
             else: res.append(char)
             
         return "".join(res).replace("\n\n", "\n").strip()
-    
+'''
+
 # Dataset and Dataloader
 
 class MazeDataset(Dataset):
-    def __init__(self, txt: str, tokenizer: BaseMazeTokenizer, max_len: int, mode="dencoder"):
+    def __init__(self, txt: str, tokenizer: BaseMazeTokenizer, context_len: int, mode: str):
         self.tokenizer = tokenizer
         self.mode = mode
         self.samples = []
         
-        blocks = [b.strip() for b in txt.split("\n\n") if b.strip()]
+        blocks = [b for b in txt.split("\n\n")]
         
         for block in blocks:
-            if '<SOLUTION_START>' in block:
-                split_idx = block.index('<SOLUTION_START>')
-            elif '<COMPLETION_START>' in block:
-                split_idx = block.index('<COMPLETION_START>')
-            else:
-                continue
+            split_idx = block.index('<SOLUTION_START>')
                 
-            m_part = block[:split_idx].strip()
-            r_part = block[split_idx:].strip()
+            m_part = block[:split_idx]
+            r_part = block[split_idx:]
             
             m_ids = tokenizer.encode(m_part)
             r_ids = tokenizer.encode(r_part)
             
-            if self.mode == "single":
+            if self.mode == "decoder":
                 full = m_ids + r_ids
-                full = (full + [tokenizer.pad_id] * (max_len + 1))[:max_len + 1]
+                full = (full + [tokenizer.pad_id] * (context_len + 1))[:context_len + 1]
                 
                 x = torch.tensor(full[:-1])
                 y = torch.tensor(full[1:])
                 y[:len(m_ids) - 1] = tokenizer.pad_id
                 
                 self.samples.append((x, y))
+
+            elif self.mode == "encoder":
+                x = (m_ids + [tokenizer.pad_id] * context_len)[:context_len]
+                y = (r_ids + [tokenizer.pad_id] * context_len)[:context_len]
+                
+                self.samples.append((torch.tensor(x), torch.tensor(y)))
             
             elif self.mode == "dencoder":
-                m_in = (m_ids + [tokenizer.pad_id] * max_len)[:max_len]
-                r_in = (r_ids + [tokenizer.pad_id] * max_len)[:max_len]
-                r_out = (r_ids[1:] + [tokenizer.pad_id] * max_len)[:max_len]
+                m_in = (m_ids + [tokenizer.pad_id] * context_len)[:context_len]
+                r_in = (r_ids + [tokenizer.pad_id] * context_len)[:context_len]
+                r_out = (r_ids[1:] + [tokenizer.pad_id] * context_len)[:context_len]
                 
                 self.samples.append((torch.tensor(m_in), torch.tensor(r_in), torch.tensor(r_out)))
 
@@ -238,34 +236,34 @@ class MazeDataset(Dataset):
     def __getitem__(self, idx):
         return self.samples[idx]
 
-def build_dataloader(dsrc: str, tokenizer_type: str, max_length: int, batch_size: int = 4,
-                     shuffle: bool = True, mode: str = "dencoder") -> DataLoader:
+def build_dataloader(dsrc: str, tokenizer_type: str, context_length: int, batch_size: int = 4,
+                     shuffle: bool = True, mode: str = "decoder", lab_size: int = 21, directions_task: bool = False) -> DataLoader:
     abs_path = os.path.abspath(dsrc)
     with open(abs_path, 'r', encoding='utf-8') as f:
         txt = f.read()
     
     if tokenizer_type == "individual":
-        tokenizer = SimpleTokenizer()
-    elif tokenizer_type == "wall_encoded":
-        tokenizer = WallEncodedTokenizer()
-    elif tokenizer_type == "free_edges":
-        tokenizer = EdgeListTokenizer()
+        tokenizer = SimpleTokenizer(lab_size,directions_task)
+    #elif tokenizer_type == "wall_encoded":
+    #    tokenizer = WallEncodedTokenizer()
+    #elif tokenizer_type == "free_edges":
+    #    tokenizer = EdgeListTokenizer()
     else:
         raise ValueError("Invalid labyrinth token type, choose between 'individual', 'wall_encoded' and 'free_edges'.")
         
-    dataset = MazeDataset(txt, tokenizer, max_length, mode=mode)
+    dataset = MazeDataset(txt, tokenizer, context_length, mode=mode)
 
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, pin_memory=True)
 
 # Embedder
 
 class MazeEmbedder(nn.Module):
-    def __init__(self, vocab_size: int, d_model: int, max_len: int):
+    def __init__(self, vocab_size: int, d_model: int, context_len: int):
         super().__init__()
         self.token_embedding = nn.Embedding(vocab_size, d_model)
         
-        pe = torch.zeros(max_len, d_model)
-        pos = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        pe = torch.zeros(context_len, d_model)
+        pos = torch.arange(0, context_len, dtype=torch.float).unsqueeze(1)
         div = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         
         pe[:, 0::2] = torch.sin(pos * div)
@@ -273,6 +271,5 @@ class MazeEmbedder(nn.Module):
         
         self.register_buffer('pe', pe.unsqueeze(0))
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.token_embedding(x) + self.pe[:, :x.size(1), :]
-'''
+    def forward(self, x: torch.Tensor, start_pos: int = 0) -> torch.Tensor:
+        return self.token_embedding(x) + self.pe[:, start_pos : start_pos + x.size(1), :]
