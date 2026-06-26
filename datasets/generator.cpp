@@ -16,6 +16,7 @@ namespace fs = std::filesystem;
 int NUM_MAZES_TO_GENERATE = 100000;
 string DATA_TYPE = "TRAIN"; // TRAIN | TEST
 string OUTPUT_FILENAME = "example.txt";
+int SEED = 420;
 
 int LAB_MIN_WIDTH = 10, LAB_MAX_WIDTH = 10;
 int LAB_MIN_HEIGHT = 10, LAB_MAX_HEIGHT = 10;
@@ -40,7 +41,7 @@ map<string, double> CHOSEN_DISTRIBUTION = {
 //-------------------- Definitions --------------------
 
 #define pii pair<int,int>
-mt19937 rng(time(nullptr));
+std::mt19937 rng;
 
 int MAZE_MIN_WIDTH = 2*LAB_MIN_WIDTH+1, MAZE_MAX_WIDTH = 2*LAB_MAX_WIDTH+1;
 int MAZE_MIN_HEIGHT = 2*LAB_MIN_HEIGHT+1, MAZE_MAX_HEIGHT = 2*LAB_MAX_HEIGHT+1;
@@ -471,7 +472,8 @@ string format_solution(vector<string> maze, const vector<pii>& path){
 //-------------------- Pipeline Central --------------------
 
 void generate_dataset_file(map<string, double> gen_probs = {}){
-    cout << "Architecture: " << LABYRINTH_TOKENS << " | Solution Format: " << OUTPUT_TO_FORMAT << endl;
+    rng.seed(SEED);
+    cout << "Architecture: " << LABYRINTH_TOKENS << " | Solution Format: " << OUTPUT_TO_FORMAT << " | Seed: " << SEED << endl;
 
     if(LABYRINTH_TOKENS == "individual"){
         OUTPUT_FILENAME = "Simple_" + OUTPUT_FILENAME;
