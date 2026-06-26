@@ -13,7 +13,7 @@ namespace fs = std::filesystem;
 
 //-------------------- Parameters --------------------
 
-int NUM_MAZES_TO_GENERATE = 10000;
+int NUM_MAZES_TO_GENERATE = 100000;
 string DATA_TYPE = "TRAIN"; // TRAIN | TEST
 string OUTPUT_FILENAME = "example.txt";
 
