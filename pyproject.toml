@@ -15,7 +15,8 @@ dependencies = [
     "numpy",
     "tqdm",
     "matplotlib",
-    "tensorboard"
+    "tensorboard",
+    "pygame"
 ]
 
 [tool.setuptools.packages.find]
