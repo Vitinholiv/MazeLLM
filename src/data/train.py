@@ -8,10 +8,9 @@ from torch.optim import AdamW
 from src.general.configs import init, ModelConfigs
 from src.data.preprocess import build_dataloader
 
-def train(config: str, dataset: str, directions_task: bool, batch_size: int = 64, epochs: int = 10, lr: float = 3e-4):
+def train(run_id: str, config: str, dataset: str, directions_task: bool, batch_size: int = 64, epochs: int = 10, lr: float = 3e-4):
 
     # Globals
-    run_id = time.time_ns()
     tokenizer, model, device = init(config, directions_task)
     conf = ModelConfigs.get(config)
     task_name = 'directions' if directions_task else 'completion'
@@ -40,6 +39,9 @@ def train(config: str, dataset: str, directions_task: bool, batch_size: int = 64
     os.makedirs(f"runs/{config}/{task_name}", exist_ok=True)
     os.makedirs(f"runs/{config}/{task_name}/{run_id}", exist_ok=True)
     savefolder = f"runs/{config}/{task_name}/{run_id}"
+    logpath = f"{savefolder}/training_logs.json"
+    bestpath = f"{savefolder}/best_model.pt"
+    epochpath = lambda e : f"{savefolder}/epoch_{e}.pt"
 
     # Training Logs
     training_logs = {
@@ -107,7 +109,7 @@ def train(config: str, dataset: str, directions_task: bool, batch_size: int = 64
         # Update Best Model
         if avg_loss < best_loss:
             best_loss = avg_loss
-            torch.save(model.state_dict(), f"{savefolder}/best_model.pt")
+            torch.save(model.state_dict(), bestpath)
             new_best_sep = " *\n"
 
         # Get Epoch Info
@@ -120,22 +122,20 @@ def train(config: str, dataset: str, directions_task: bool, batch_size: int = 64
         training_logs["lr_history"].append(current_lr)
 
         # Saving
-        logpath = f"{savefolder}/training_logs.json"
         with open(logpath, "w", encoding="utf-8") as f:
             json.dump(training_logs, f, indent=4)
-
-        savepath = f"{savefolder}/epoch_{epoch}.pt"
-        torch.save(model.state_dict(), savepath)
+        torch.save(model.state_dict(), epochpath(epoch))
 
     for epoch in range(1, epochs+1):
         train_one_epoch(epoch)
 
 if __name__ == "__main__":
     train(
+        'ID',
         'SimpleDecoder',
-        'datasets/train/directions/Simple_dataset.txt',
+        'datasets/train/directions/Simple_example.txt',
         True,
         batch_size=32,
-        epochs=20,
+        epochs=50,
         lr=1e-3
     )
