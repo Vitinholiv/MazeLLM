@@ -45,8 +45,6 @@ def load_next_labyrinth(blocks, tokenizer, directions_task, model, device, conf,
 
     input_ids = tokenizer.encode(input_str)
     start_id = tokenizer.char_to_id['<SOLUTION_START>']
-    end_id = tokenizer.char_to_id['<SOLUTION_END>']
-
     tokenizer_type = model.tokenizer_type
 
     if directions_task:
