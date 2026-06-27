@@ -45,34 +45,42 @@ def load_next_labyrinth(blocks, tokenizer, directions_task, model, device, conf,
 
     input_ids = tokenizer.encode(input_str)
     start_id = tokenizer.char_to_id['<SOLUTION_START>']
+    end_id = tokenizer.char_to_id['<SOLUTION_END>']
     tokenizer_type = model.tokenizer_type
 
     if directions_task:
         if tokenizer_type == 'individual':
-            return []
+            yield []
+            return
         elif tokenizer_type == 'wall_encoded':
-            return []
+            yield []
+            return
         elif tokenizer_type == 'free_edges':
-            return []
+            yield []
+            return
     else:
         if tokenizer_type == 'individual':
             steps = conf['lab_size']**2 + 2
             with torch.no_grad():
                 if conf["dataset_mode"] == "decoder":
                     seq = torch.tensor(input_ids + [start_id], device=device).unsqueeze(0)
-                    for _ in range(steps):
+                    for i in range(steps):
                         logits = model(seq)
                         next_token = logits[:, -1:, :].argmax(dim=-1)
                         seq = torch.cat([seq, next_token], dim=1)
+                        yield i / steps
                     full_ids = seq[0].tolist()
 
                 elif conf["dataset_mode"] == "dencoder":
-                    m_in = torch.tensor(input_ids, device=device).unsqueeze(0)
-                    r_in = torch.tensor([start_id], device=device).unsqueeze(0)
+                    m_in = torch.tensor(input_ids).unsqueeze(0).to(device)
+                    r_in = torch.tensor([start_id]).unsqueeze(0).to(device)
                     for _ in range(steps):
                         logits = model(m_in, r_in)
-                        next_token = logits[:, -1:, :].argmax(dim=-1)
-                        r_in = torch.cat([r_in, next_token], dim=1)
+                        next_token = logits[0, -1, :].argmax().item()
+                        
+                        r_in = torch.cat([r_in, torch.tensor([[next_token]]).to(device)], dim=1)
+                        if next_token == end_id:
+                            break
                     full_ids = input_ids + r_in[0].tolist()
 
                 else:
@@ -80,13 +88,52 @@ def load_next_labyrinth(blocks, tokenizer, directions_task, model, device, conf,
                 
             full_str = tokenizer.decode(full_ids)
             pred_str = '<SOLUTION_START>' + full_str.split('<SOLUTION_START>')[1]
-            return [decoded_to_matrix(input_str),decoded_to_matrix(solv_str),decoded_to_matrix(pred_str)]
+            yield [decoded_to_matrix(input_str), decoded_to_matrix(solv_str), decoded_to_matrix(pred_str)]
+            return
         elif tokenizer_type == 'wall_encoded':
-            return []
+            yield []
+            return
         elif tokenizer_type == 'free_edges':
-            return []
+            yield []
+            return
 
 # General Classes
+
+class UILoadingBar:
+    def __init__(self, x, y, width, height, text: str = "Carregando...", text_color: str = "#FFFFFF", bg_color: str = "#223344", fill_color: str = "#2A93CB"):
+        self.raw_x = x
+        self.raw_y = y
+        self.raw_w = width
+        self.raw_h = height
+        self.text = text
+        self.text_color = pygame.Color(text_color)
+        self.bg_color = pygame.Color(bg_color)
+        self.fill_color = pygame.Color(fill_color)
+        self.progress = 0.0
+
+    def set_progress(self, value: float):
+        self.progress = max(0.0, min(1.0, value))
+
+    def get_rect(self, screen_w: int, screen_h: int) -> pygame.Rect:
+        x = parse_dim(self.raw_x, screen_w, screen_h)
+        y = parse_dim(self.raw_y, screen_w, screen_h)
+        w = parse_dim(self.raw_w, screen_w, screen_h)
+        h = parse_dim(self.raw_h, screen_w, screen_h)
+        return pygame.Rect(x, y, w, h)
+
+    def draw(self, screen: pygame.Surface, font: pygame.font.Font):
+        rect = self.get_rect(screen.get_width(), screen.get_height())
+
+        pygame.draw.rect(screen, self.bg_color, rect, border_radius=8)
+
+        fill_rect = pygame.Rect(rect.x, rect.y, int(rect.width * self.progress), rect.height)
+        if fill_rect.width > 0:
+            pygame.draw.rect(screen, self.fill_color, fill_rect, border_radius=8)
+
+        label = f"{self.text} {int(self.progress * 100)}%"
+        text_surf = font.render(label, True, self.text_color)
+        text_rect = text_surf.get_rect(center=rect.center)
+        screen.blit(text_surf, text_rect)
 
 class UIButton:
     def __init__(self, id_name: str, x, y, width, height, text: str, text_color: str, bg_color: str = "#223344", active_color: str = "#2A93CB"):
@@ -299,14 +346,12 @@ def iteration(blocks, model, tokenizer, task_name, conf, device, display_data, e
         if display_data['current_screen'] == 'sample':
             btns = display_data['screen_sample'].get("buttons", [])
             
-            # Load Labyrinth
+            # Load Labyrinth Generation
             if btns[0].check_click(event_info):
-                matrices = load_next_labyrinth(blocks, tokenizer, task_name == 'directions', model, device, conf, display_data)
-                if matrices and len(matrices) == 3:
-                    if matrices[0] is not None: display_data['screen_sample']['labyrinths'][0].update_from_labyrinth(matrices[0])
-                    if matrices[1] is not None: display_data['screen_sample']['labyrinths'][1].update_from_labyrinth(matrices[1])
-                    if matrices[2] is not None: display_data['screen_sample']['labyrinths'][2].update_from_labyrinth(matrices[2])
-                
+                display_data['screen_sample']['gen'] = load_next_labyrinth(blocks, tokenizer, task_name == 'directions', model, device, conf, display_data)
+                display_data['screen_sample']['loading'] = True
+                display_data['screen_sample']['progress'] = 0.0
+
                 display_data['screen_sample']['current_lab_id'] = 0
                 for i in range(1, 4): btns[i].is_selected = (i == 1)
 
@@ -323,6 +368,25 @@ def iteration(blocks, model, tokenizer, task_name, conf, device, display_data, e
                 display_data['screen_sample']['current_lab_id'] = 2
                 for i in range(1, 4): btns[i].is_selected = (i == 3)
 
+    # Generator Finished
+    gen = display_data['screen_sample'].get('gen')
+    if display_data['screen_sample'].get('loading') and gen is not None:
+        try:
+            value = next(gen)
+            if isinstance(value, list):
+                matrices = value
+                if matrices and len(matrices) == 3:
+                    if matrices[0] is not None: display_data['screen_sample']['labyrinths'][0].update_from_labyrinth(matrices[0])
+                    if matrices[1] is not None: display_data['screen_sample']['labyrinths'][1].update_from_labyrinth(matrices[1])
+                    if matrices[2] is not None: display_data['screen_sample']['labyrinths'][2].update_from_labyrinth(matrices[2])
+                display_data['screen_sample']['loading'] = False
+                display_data['screen_sample']['gen'] = None
+            else:
+                display_data['screen_sample']['loading_bar'].set_progress(value)
+        except StopIteration:
+            display_data['screen_sample']['loading'] = False
+            display_data['screen_sample']['gen'] = None
+
     return display_data
 
 def render(screen, fonts, display_data, model, task_name):
@@ -334,9 +398,12 @@ def render(screen, fonts, display_data, model, task_name):
     if display_data['current_screen'] == 'sample':
         for btn in display_data['screen_sample'].get("buttons", []):
             btn.draw(screen, fonts[2], pygame.mouse.get_pos())
-        
-        matrix = display_data['screen_sample']['labyrinths'][display_data['screen_sample']['current_lab_id']]
-        matrix.draw(screen, fonts[1], pygame.mouse.get_pos())
+
+        if display_data['screen_sample']['loading'] == True:
+            display_data['screen_sample']['loading_bar'].draw(screen, fonts[2])
+        else:
+            matrix = display_data['screen_sample']['labyrinths'][display_data['screen_sample']['current_lab_id']]
+            matrix.draw(screen, fonts[1], pygame.mouse.get_pos())
 
         table = display_data['screen_sample']['table']
         table.draw(screen, fonts[2])
@@ -415,6 +482,16 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
         "screen_sample": {
             "labyrinth_index": 0,
             "current_lab_id": 0,
+            "gen": None,
+            "loading": False,
+            "loading_bar": UILoadingBar(
+                x="3vh", y="50vh",
+                width="80vh", height="6vh",
+                text="Gerando labirinto",
+                text_color="#FFFFFF",
+                bg_color="#112230",
+                fill_color="#24DBEC"
+            ),
             "buttons": [
                 UIButton(
                     id_name="btn_new_sample_maze",
