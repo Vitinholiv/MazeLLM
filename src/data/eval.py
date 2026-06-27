@@ -22,76 +22,30 @@ def parse_dim(val: Union[int, float, str], screen_w: int, screen_h: int) -> int:
             pass
     return 0
 
-def load_next_labyrinth(dataloader, tokenizer, lab_size, directions_task, model, device, conf):
-    if not hasattr(load_next_labyrinth, 'data_iter'):
-        load_next_labyrinth.data_iter = iter(dataloader)
-        
-    try:
-        batch = next(load_next_labyrinth.data_iter)
-    except StopIteration:
-        load_next_labyrinth.data_iter = iter(dataloader)
-        batch = next(load_next_labyrinth.data_iter)
+def decoded_to_matrix(decoded):
+    dec = decoded.split('\n')
+    res = []
+    for line in range(1,len(dec)-1):
+        mline = []
+        for i in range(0,len(dec[line]),2):
+            mline.append(dec[line][i])
+        res.append(mline)
+    return res
 
-    is_dencoder = (len(batch) == 3)
-    
-    with torch.no_grad():
-        if is_dencoder:
-            m_in, r_in, r_out = [tensor.to(device) for tensor in batch]
-            input_ids, target_ids = m_in, r_out
-            logits = model(m_in, r_in)
-            pred_ids = logits.argmax(dim=-1)
-        else:
-            inputs, targets = [tensor.to(device) for tensor in batch]
-            input_ids, target_ids = inputs, targets
-            logits = model(inputs)
-            pred_ids = logits.argmax(dim=-1)
+def load_next_labyrinth(blocks, tokenizer, lab_size, directions_task, model, device, conf, display_data):
+    idx = display_data['screen_sample']['labyrinth_index']
+    sample = blocks[idx]
 
-    def extract_matrix_from_ids(ids_tensor, extract_type="prompt"):
-        token_list = ids_tensor[0].tolist()
-        chars = [tokenizer.id_to_char.get(t, '') for t in token_list]
-        
-        sol_start, sol_end = -1, -1
-        for i, c in enumerate(chars):
-            if c in ['<SOLUTION_START>', '<COMPLETION_START>']:
-                sol_start = i
-            elif c in ['<SOLUTION_END>', '<COMPLETION_END>']:
-                sol_end = i
-                break
-                
-        if extract_type == "solution":
-            if sol_end == -1:
-                return [] 
-            block_chars = chars[sol_start+1 : sol_end]
-            grid_count = sum(1 for c in block_chars if c != '\n' and not c.startswith('<') and c != '<PAD>')
-            if grid_count != (lab_size * lab_size):
-                return [] 
-                
-        else:
-            end_idx = sol_start if sol_start != -1 else len(chars)
-            block_chars = chars[:end_idx]
+    split_idx = sample.index('<SOLUTION_START>')
+    input_str = sample[:split_idx].strip()
+    solv_str = sample[split_idx:].strip()
 
-        lines = []
-        current_line = []
-        
-        for char in block_chars:
-            if char == '\n':
-                if current_line:
-                    lines.append(current_line)
-                    current_line = []
-            elif not char.startswith('<') and char != '<PAD>':
-                current_line.append(char)
-                
-        if current_line:
-            lines.append(current_line)
-            
-        for i in range(len(lines)):
-            lines[i] = (lines[i] + ['#'] * lab_size)[:lab_size]
-        while len(lines) < lab_size:
-            lines.append(['#'] * lab_size)
-            
-        return lines[:lab_size]
+    input_ids = tokenizer.encode(input_str)
+    start_id = tokenizer.char_to_id['<SOLUTION_START>']
+    end_id = tokenizer.char_to_id['<SOLUTION_END>']
 
-    tokenizer_type = conf.get('tokenizer_type', 'individual')
+    tokenizer_type = model.tokenizer_type
+
     if directions_task:
         if tokenizer_type == 'individual':
             return []
@@ -101,16 +55,42 @@ def load_next_labyrinth(dataloader, tokenizer, lab_size, directions_task, model,
             return []
     else:
         if tokenizer_type == 'individual':
-            input_matrix = extract_matrix_from_ids(input_ids, extract_type="prompt")
-            target_matrix = extract_matrix_from_ids(target_ids, extract_type="solution")
-            pred_matrix = extract_matrix_from_ids(pred_ids, extract_type="solution")
-            return [input_matrix, target_matrix, pred_matrix]
+            steps = conf['lab_size']**2 + 2
+            with torch.no_grad():
+                if conf["dataset_mode"] == "decoder":
+                    seq = torch.tensor(input_ids + [start_id]).unsqueeze(0).to(device)
+                    for _ in range(steps):
+                        logits = model(seq)
+                        next_token = logits[0, -1, :].argmax().item() 
+                        
+                        seq = torch.cat([seq, torch.tensor([[next_token]]).to(device)], dim=1)
+                        if next_token == end_id:
+                            break
+                    full_ids = seq[0].tolist()
 
+                elif conf["dataset_mode"] == "dencoder":
+                    m_in = torch.tensor(input_ids).unsqueeze(0).to(device)
+                    r_in = torch.tensor([start_id]).unsqueeze(0).to(device)
+                    
+                    for _ in range(steps):
+                        logits = model(m_in, r_in)
+                        next_token = logits[0, -1, :].argmax().item()
+                        
+                        r_in = torch.cat([r_in, torch.tensor([[next_token]]).to(device)], dim=1)
+                        if next_token == end_id:
+                            break
+                    full_ids = input_ids + r_in[0].tolist()
+
+                else:
+                    raise NotImplemented('EncoderNotImplemented')
+                
+            full_str = tokenizer.decode(full_ids)
+            pred_str = '<SOLUTION_START>' + full_str.split('<SOLUTION_START>')[1]
+            return [decoded_to_matrix(input_str),decoded_to_matrix(solv_str),decoded_to_matrix(pred_str)]
         elif tokenizer_type == 'wall_encoded':
             return []
         elif tokenizer_type == 'free_edges':
             return []
-        
 
 # General Classes
 
@@ -312,24 +292,42 @@ def process_events(screen: pygame.Surface):
                 
     return running, event_info
 
-def iteration(dataloader, model, tokenizer, task_name, conf, device, display_data, event_info):
-
-    # Screen Buttons
+def iteration(blocks, model, tokenizer, task_name, conf, device, display_data, event_info):
     if event_info.get("mouse_clicked"):
+        # Screen Buttons
         for btn in display_data.get("buttons", []):
             if btn.check_click(event_info):
                 display_data['current_screen'] = btn.id.replace('btn_screen_', '')
                 for b in display_data.get("buttons", []):
                     b.is_selected = (b.id == btn.id)
 
+        # Sample Screen
         if display_data['current_screen'] == 'sample':
-            btns = display_data['screen_sample'].get("buttons")
+            btns = display_data['screen_sample'].get("buttons", [])
+            
+            # Load Labyrinth
+            if btns[0].check_click(event_info):
+                matrices = load_next_labyrinth(blocks, tokenizer, conf['lab_size'], task_name == 'directions', model, device, conf, display_data)
+                if matrices and len(matrices) == 3:
+                    if matrices[0] is not None: display_data['screen_sample']['labyrinths'][0].update_from_labyrinth(matrices[0])
+                    if matrices[1] is not None: display_data['screen_sample']['labyrinths'][1].update_from_labyrinth(matrices[1])
+                    if matrices[2] is not None: display_data['screen_sample']['labyrinths'][2].update_from_labyrinth(matrices[2])
+                
+                display_data['screen_sample']['current_lab_id'] = 0
+                for i in range(1, 4): btns[i].is_selected = (i == 1)
+
+            # Swap Labyrinth State
             if btns[1].check_click(event_info):
                 display_data['screen_sample']['current_lab_id'] = 0
+                for i in range(1, 4): btns[i].is_selected = (i == 1)
+            
             if btns[2].check_click(event_info):
                 display_data['screen_sample']['current_lab_id'] = 1
+                for i in range(1, 4): btns[i].is_selected = (i == 2)
+            
             if btns[3].check_click(event_info):
                 display_data['screen_sample']['current_lab_id'] = 2
+                for i in range(1, 4): btns[i].is_selected = (i == 3)
 
     return display_data
 
@@ -361,29 +359,15 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
     tokenizer, model, device = init(config, directions_task)
     conf = ModelConfigs.get(config)
     task_name = 'directions' if directions_task else 'completion'
-
-    # Dataloader
-    dataloader = build_dataloader(
-        dsrc=dataset,
-        tokenizer_type=conf['tokenizer_type'],
-        context_length=conf['context_length'],
-        batch_size=1,
-        shuffle=True,
-        mode=conf['dataset_mode'],
-        lab_size=conf['lab_size'],
-        directions_task=directions_task
-    )
     
     # Get Model
-    if load_epoch == 'best':
-        model_path = f"runs/{config}/{task_name}/{run_id}/best_model.pt"
-    else:
-        model_path = f"runs/{config}/{task_name}/{run_id}/epoch_{load_epoch}.pt"
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"File Not Found: {model_path}")
-        
+    model_path = run_id
     model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     model.eval()
+
+    # Data
+    with open(dataset, 'r', encoding='utf-8') as f:
+        blocks = [b.strip() for b in f.read().split("\n\n") if '<SOLUTION_START>' in b]
 
     # Initialize Interface
     pygame.init()
@@ -435,6 +419,7 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
             )
         ],
         "screen_sample": {
+            "labyrinth_index": 0,
             "current_lab_id": 0,
             "buttons": [
                 UIButton(
@@ -446,14 +431,14 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
                 ),
                 UIButton(
                     id_name="btn_empty_sample_mode",
-                    x="28vh", y="10vh",
+                    x="28.5vh", y="10vh",
                     width="16vh", height="5vh",
                     text="Entrada",
                     text_color="#FFFFFF",
                 ),
                 UIButton(
                     id_name="btn_expected_sample_mode",
-                    x="46vh", y="10vh",
+                    x="46.5vh", y="10vh",
                     width="16vh", height="5vh",
                     text="Esperado",
                     text_color="#FFFFFF",
@@ -524,16 +509,16 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
         
         if running:
             display_data = iteration(
-                dataloader, model, tokenizer, task_name, conf, device, display_data, event_info
+                blocks, model, tokenizer, task_name, conf, device, display_data, event_info
             )
             render(screen, fonts, display_data, model, task_name)
     pygame.quit()
 
 if __name__ == "__main__":
     evaluate(
-        run_id="1782490567257132400",
+        run_id="runs/SimpleDecoder/1782357949889040700_epoch_20.pt",
         config="SimpleDecoder",
-        dataset="datasets/train/directions/Simple_example.txt",
-        directions_task=True,
+        dataset="datasets/train/completion/Simple_example.txt",
+        directions_task=False,
         window_size=(1280,720)
     )
