@@ -32,8 +32,11 @@ def decoded_to_matrix(decoded):
         res.append(mline)
     return res
 
-def load_next_labyrinth(blocks, tokenizer, lab_size, directions_task, model, device, conf, display_data):
+def load_next_labyrinth(blocks, tokenizer, directions_task, model, device, conf, display_data):
     idx = display_data['screen_sample']['labyrinth_index']
+    display_data['screen_sample']['labyrinth_index'] += 1
+    if(idx + 1 == len(blocks)):
+        display_data['screen_sample']['labyrinth_index'] = 0
     sample = blocks[idx]
 
     split_idx = sample.index('<SOLUTION_START>')
@@ -58,27 +61,20 @@ def load_next_labyrinth(blocks, tokenizer, lab_size, directions_task, model, dev
             steps = conf['lab_size']**2 + 2
             with torch.no_grad():
                 if conf["dataset_mode"] == "decoder":
-                    seq = torch.tensor(input_ids + [start_id]).unsqueeze(0).to(device)
+                    seq = torch.tensor(input_ids + [start_id], device=device).unsqueeze(0)
                     for _ in range(steps):
                         logits = model(seq)
-                        next_token = logits[0, -1, :].argmax().item() 
-                        
-                        seq = torch.cat([seq, torch.tensor([[next_token]]).to(device)], dim=1)
-                        if next_token == end_id:
-                            break
+                        next_token = logits[:, -1:, :].argmax(dim=-1)
+                        seq = torch.cat([seq, next_token], dim=1)
                     full_ids = seq[0].tolist()
 
                 elif conf["dataset_mode"] == "dencoder":
-                    m_in = torch.tensor(input_ids).unsqueeze(0).to(device)
-                    r_in = torch.tensor([start_id]).unsqueeze(0).to(device)
-                    
+                    m_in = torch.tensor(input_ids, device=device).unsqueeze(0)
+                    r_in = torch.tensor([start_id], device=device).unsqueeze(0)
                     for _ in range(steps):
                         logits = model(m_in, r_in)
-                        next_token = logits[0, -1, :].argmax().item()
-                        
-                        r_in = torch.cat([r_in, torch.tensor([[next_token]]).to(device)], dim=1)
-                        if next_token == end_id:
-                            break
+                        next_token = logits[:, -1:, :].argmax(dim=-1)
+                        r_in = torch.cat([r_in, next_token], dim=1)
                     full_ids = input_ids + r_in[0].tolist()
 
                 else:
@@ -307,7 +303,7 @@ def iteration(blocks, model, tokenizer, task_name, conf, device, display_data, e
             
             # Load Labyrinth
             if btns[0].check_click(event_info):
-                matrices = load_next_labyrinth(blocks, tokenizer, conf['lab_size'], task_name == 'directions', model, device, conf, display_data)
+                matrices = load_next_labyrinth(blocks, tokenizer, task_name == 'directions', model, device, conf, display_data)
                 if matrices and len(matrices) == 3:
                     if matrices[0] is not None: display_data['screen_sample']['labyrinths'][0].update_from_labyrinth(matrices[0])
                     if matrices[1] is not None: display_data['screen_sample']['labyrinths'][1].update_from_labyrinth(matrices[1])
