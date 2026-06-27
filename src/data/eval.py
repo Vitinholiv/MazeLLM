@@ -230,7 +230,16 @@ def iteration(dataloader, model, tokenizer, task_name, conf, device, display_dat
                 display_data['current_screen'] = btn.id.replace('btn_screen_', '')
                 for b in display_data.get("buttons", []):
                     b.is_selected = (b.id == btn.id)
-                
+
+        if display_data['current_screen'] == 'sample':
+            btns = display_data['screen_sample'].get("buttons")
+            if btns[1].check_click(event_info):
+                display_data['screen_sample']['current_lab_id'] = 0
+            if btns[2].check_click(event_info):
+                display_data['screen_sample']['current_lab_id'] = 1
+            if btns[3].check_click(event_info):
+                display_data['screen_sample']['current_lab_id'] = 2
+
     return display_data
 
 def render(screen, fonts, display_data, model, task_name):
@@ -243,7 +252,7 @@ def render(screen, fonts, display_data, model, task_name):
         for btn in display_data['screen_sample'].get("buttons", []):
             btn.draw(screen, fonts[2], pygame.mouse.get_pos())
         
-        matrix = display_data['screen_sample']['labyrinth']
+        matrix = display_data['screen_sample']['labyrinths'][display_data['screen_sample']['current_lab_id']]
         matrix.draw(screen, fonts[1], pygame.mouse.get_pos())
 
         table = display_data['screen_sample']['table']
@@ -335,6 +344,7 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
             )
         ],
         "screen_sample": {
+            "current_lab_id": 0,
             "buttons": [
                 UIButton(
                     id_name="btn_new_sample_maze",
@@ -365,12 +375,26 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
                     text_color="#FFFFFF",
                 ),
             ],
-            "labyrinth": ScreenMatrix(
-                x="3vh", y="18vh",
-                width="80vh",
-                height="80vh",
-                k=21
-            ),
+            "labyrinths": [
+                ScreenMatrix(
+                    x="3vh", y="18vh",
+                    width="80vh",
+                    height="80vh",
+                    k=21
+                ),
+                ScreenMatrix(
+                    x="3vh", y="18vh",
+                    width="80vh",
+                    height="80vh",
+                    k=21
+                ),
+                ScreenMatrix(
+                    x="3vh", y="18vh",
+                    width="80vh",
+                    height="80vh",
+                    k=11
+                )
+            ],
             "table": UIMetricsTable(
                 x="90vh", y="10vh",
                 width="80vh", height="86.5vh",
