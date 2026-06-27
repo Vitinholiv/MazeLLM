@@ -1,6 +1,7 @@
 import os
 import torch
 import pygame
+import itertools
 from typing import Union
 from src.general.configs import init, ModelConfigs
 from src.data.preprocess import build_dataloader
@@ -20,6 +21,96 @@ def parse_dim(val: Union[int, float, str], screen_w: int, screen_h: int) -> int:
         except ValueError:
             pass
     return 0
+
+def load_next_labyrinth(dataloader, tokenizer, lab_size, directions_task, model, device, conf):
+    if not hasattr(load_next_labyrinth, 'data_iter'):
+        load_next_labyrinth.data_iter = iter(dataloader)
+        
+    try:
+        batch = next(load_next_labyrinth.data_iter)
+    except StopIteration:
+        load_next_labyrinth.data_iter = iter(dataloader)
+        batch = next(load_next_labyrinth.data_iter)
+
+    is_dencoder = (len(batch) == 3)
+    
+    with torch.no_grad():
+        if is_dencoder:
+            m_in, r_in, r_out = [tensor.to(device) for tensor in batch]
+            input_ids, target_ids = m_in, r_out
+            logits = model(m_in, r_in)
+            pred_ids = logits.argmax(dim=-1)
+        else:
+            inputs, targets = [tensor.to(device) for tensor in batch]
+            input_ids, target_ids = inputs, targets
+            logits = model(inputs)
+            pred_ids = logits.argmax(dim=-1)
+
+    def extract_matrix_from_ids(ids_tensor, extract_type="prompt"):
+        token_list = ids_tensor[0].tolist()
+        chars = [tokenizer.id_to_char.get(t, '') for t in token_list]
+        
+        sol_start, sol_end = -1, -1
+        for i, c in enumerate(chars):
+            if c in ['<SOLUTION_START>', '<COMPLETION_START>']:
+                sol_start = i
+            elif c in ['<SOLUTION_END>', '<COMPLETION_END>']:
+                sol_end = i
+                break
+                
+        if extract_type == "solution":
+            if sol_end == -1:
+                return [] 
+            block_chars = chars[sol_start+1 : sol_end]
+            grid_count = sum(1 for c in block_chars if c != '\n' and not c.startswith('<') and c != '<PAD>')
+            if grid_count != (lab_size * lab_size):
+                return [] 
+                
+        else:
+            end_idx = sol_start if sol_start != -1 else len(chars)
+            block_chars = chars[:end_idx]
+
+        lines = []
+        current_line = []
+        
+        for char in block_chars:
+            if char == '\n':
+                if current_line:
+                    lines.append(current_line)
+                    current_line = []
+            elif not char.startswith('<') and char != '<PAD>':
+                current_line.append(char)
+                
+        if current_line:
+            lines.append(current_line)
+            
+        for i in range(len(lines)):
+            lines[i] = (lines[i] + ['#'] * lab_size)[:lab_size]
+        while len(lines) < lab_size:
+            lines.append(['#'] * lab_size)
+            
+        return lines[:lab_size]
+
+    tokenizer_type = conf.get('tokenizer_type', 'individual')
+    if directions_task:
+        if tokenizer_type == 'individual':
+            return []
+        elif tokenizer_type == 'wall_encoded':
+            return []
+        elif tokenizer_type == 'free_edges':
+            return []
+    else:
+        if tokenizer_type == 'individual':
+            input_matrix = extract_matrix_from_ids(input_ids, extract_type="prompt")
+            target_matrix = extract_matrix_from_ids(target_ids, extract_type="solution")
+            pred_matrix = extract_matrix_from_ids(pred_ids, extract_type="solution")
+            return [input_matrix, target_matrix, pred_matrix]
+
+        elif tokenizer_type == 'wall_encoded':
+            return []
+        elif tokenizer_type == 'free_edges':
+            return []
+        
 
 # General Classes
 
@@ -392,15 +483,16 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
                     x="3vh", y="18vh",
                     width="80vh",
                     height="80vh",
-                    k=11
+                    k=21
                 )
             ],
             "table": UIMetricsTable(
                 x="90vh", y="10vh",
                 width="80vh", height="86.5vh",
                 col_weights=[3,2],
-                row_weights=[1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                row_weights=[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
                 data=[
+                    ["Corretude", ""],
                     ["Solução", ""],
                     ["Tokens Alterados", ""],
                     ["Tokens Ótimos", ""],
@@ -420,7 +512,7 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
                 bg_color="#161616",
                 border_color="#161616",
                 text_color="#FFFFFF",
-                border_size=2
+                border_size=1
             )
         }
     }
