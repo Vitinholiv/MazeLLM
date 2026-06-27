@@ -24,7 +24,7 @@ def parse_dim(val: Union[int, float, str], screen_w: int, screen_h: int) -> int:
 # General Classes
 
 class UIButton:
-    def __init__(self, id_name: str, x, y, width, height, text: str, text_color: str, bg_color: str = "#223344", active_color: str = '#069E12'):
+    def __init__(self, id_name: str, x, y, width, height, text: str, text_color: str, bg_color: str = "#223344", active_color: str = "#2A93CB"):
         self.id = id_name
         self.raw_x = x
         self.raw_y = y
@@ -67,7 +67,7 @@ class ScreenMatrix:
         self.raw_w, self.raw_h = width, height
         self.k = k
         self.grid = [[{"char": "#", "score": 0.0} for _ in range(k)] for _ in range(k)]
-        self.cell_padding = 2  # Aumentei um pouco para visibilidade das paredes internas
+        self.cell_padding = 2
 
     def update_from_labyrinth(self, maze_data: list):
         for r in range(self.k):
@@ -128,6 +128,67 @@ class ScreenMatrix:
                     text_surf = font.render(char, True, fg)
                     screen.blit(text_surf, text_surf.get_rect(center=(x + cell_w//2, y + cell_h//2)))
 
+class UIMetricsTable:
+    def __init__(self, x, y, width, height, col_weights, row_weights, data,
+                 bg_color="#223344", text_color="#FFFFFF", border_color=None,
+                 border_size=0, cell_bg_color=None):
+        self.raw_x = x
+        self.raw_y = y
+        self.raw_w = width
+        self.raw_h = height
+        self.col_weights = col_weights
+        self.row_weights = row_weights
+        self.data = data
+        self.bg_color = pygame.Color(bg_color)
+        self.text_color = pygame.Color(text_color)
+        self.border_color = pygame.Color(border_color) if border_color else self.text_color
+        self.border_size = border_size
+        self.cell_bg_color = pygame.Color(cell_bg_color) if cell_bg_color else None
+
+    def get_rect(self, screen_w, screen_h) -> pygame.Rect:
+        return pygame.Rect(
+            parse_dim(self.raw_x, screen_w, screen_h),
+            parse_dim(self.raw_y, screen_w, screen_h),
+            parse_dim(self.raw_w, screen_w, screen_h),
+            parse_dim(self.raw_h, screen_w, screen_h)
+        )
+
+    def draw(self, screen: pygame.Surface, font: pygame.font.Font):
+        rect = self.get_rect(screen.get_width(), screen.get_height())
+        pygame.draw.rect(screen, self.bg_color, rect)
+
+        total_col = sum(self.col_weights)
+        total_row = sum(self.row_weights)
+        col_widths = [rect.width * w / total_col for w in self.col_weights]
+        row_heights = [rect.height * h / total_row for h in self.row_weights]
+
+        for i, row in enumerate(self.data):
+            for j, cell_text in enumerate(row):
+                x = rect.x + sum(col_widths[:j])
+                y = rect.y + sum(row_heights[:i])
+                inner_x = x + self.border_size
+                inner_y = y + self.border_size
+                inner_w = max(0, col_widths[j] - 2 * self.border_size)
+                inner_h = max(0, row_heights[i] - 2 * self.border_size)
+                if inner_w > 0 and inner_h > 0:
+                    cell_rect = pygame.Rect(inner_x, inner_y, inner_w, inner_h)
+                    if self.cell_bg_color:
+                        pygame.draw.rect(screen, self.cell_bg_color, cell_rect)
+                    text_surf = font.render(str(cell_text), True, self.text_color)
+                    text_rect = text_surf.get_rect(center=cell_rect.center)
+                    screen.blit(text_surf, text_rect)
+
+        color = self.border_color
+        x_pos = rect.x
+        for j in range(len(self.col_weights) - 1):
+            x_pos += col_widths[j]
+            pygame.draw.line(screen, color, (x_pos, rect.y), (x_pos, rect.y + rect.height), 1)
+        y_pos = rect.y
+        for i in range(len(self.row_weights) - 1):
+            y_pos += row_heights[i]
+            pygame.draw.line(screen, color, (rect.x, y_pos), (rect.x + rect.width, y_pos), 1)
+        pygame.draw.rect(screen, color, rect, 1)
+
 # App Run Functions
 
 def process_events(screen: pygame.Surface):
@@ -179,8 +240,14 @@ def render(screen, fonts, display_data, model, task_name):
         btn.draw(screen, fonts[2], pygame.mouse.get_pos())
 
     if display_data['current_screen'] == 'sample':
+        for btn in display_data['screen_sample'].get("buttons", []):
+            btn.draw(screen, fonts[2], pygame.mouse.get_pos())
+        
         matrix = display_data['screen_sample']['labyrinth']
         matrix.draw(screen, fonts[1], pygame.mouse.get_pos())
+
+        table = display_data['screen_sample']['table']
+        table.draw(screen, fonts[2])
     elif display_data['current_screen'] == 'metrics':
         xx = 0
     elif display_data['current_screen'] == 'attention':
@@ -241,31 +308,96 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
         "buttons": [
             UIButton(
                 id_name="btn_screen_sample",
-                x="2vh", y="2vh",
+                x="3vh", y="2vh",
                 width="14vh", height="5vh",
                 text="Amostra",
                 text_color="#FFFFFF",
+                bg_color="#053911",
+                active_color="#069E12"
             ),
             UIButton(
                 id_name="btn_screen_metrics",
-                x="18vh", y="2vh",
+                x="19vh", y="2vh",
                 width="14vh", height="5vh",
                 text="Métricas",
-                text_color="#FFFFFF"
+                text_color="#FFFFFF",
+                bg_color="#053911",
+                active_color="#069E12"
             ),
             UIButton(
                 id_name="btn_screen_attention",
-                x="34vh", y="2vh",
+                x="35vh", y="2vh",
                 width="14vh", height="5vh",
                 text="Atenção",
-                text_color="#FFFFFF"
+                text_color="#FFFFFF",
+                bg_color="#053911",
+                active_color="#069E12"
             )
         ],
         "screen_sample": {
             "buttons": [
-
+                UIButton(
+                    id_name="btn_new_sample_maze",
+                    x="3vh", y="10vh",
+                    width="20vh", height="5vh",
+                    text="Novo Labirinto",
+                    text_color="#FFFFFF",
+                ),
+                UIButton(
+                    id_name="btn_empty_sample_mode",
+                    x="28vh", y="10vh",
+                    width="16vh", height="5vh",
+                    text="Entrada",
+                    text_color="#FFFFFF",
+                ),
+                UIButton(
+                    id_name="btn_expected_sample_mode",
+                    x="46vh", y="10vh",
+                    width="16vh", height="5vh",
+                    text="Esperado",
+                    text_color="#FFFFFF",
+                ),
+                UIButton(
+                    id_name="btn_obtained_sample_mode",
+                    x="65vh", y="10vh",
+                    width="16vh", height="5vh",
+                    text="Obtido",
+                    text_color="#FFFFFF",
+                ),
             ],
-            "labyrinth": ScreenMatrix(x="2vh", y="19vh", width="80vh", height="80vh", k=21)
+            "labyrinth": ScreenMatrix(
+                x="3vh", y="18vh",
+                width="80vh",
+                height="80vh",
+                k=21
+            ),
+            "table": UIMetricsTable(
+                x="90vh", y="10vh",
+                width="80vh", height="86.5vh",
+                col_weights=[3,2],
+                row_weights=[1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                data=[
+                    ["Solução", ""],
+                    ["Tokens Alterados", ""],
+                    ["Tokens Ótimos", ""],
+                    ["Tokens Diferentes", ""],
+                    ["Progresso Direto", ""],
+                    ["Progresso Inverso", ""],
+                    ["Distância Direta", ""],
+                    ["Distância Inversa", ""],
+                    ["Paredes Violadas", ""],
+                    ["Espaços Violados", ""],
+                    ["Início Violado", ""],
+                    ["Final Violado", ""],
+                    ["Caminho Único", ""],
+                    ["Caminho Conexo", ""],
+                ],
+                cell_bg_color="#112230",
+                bg_color="#161616",
+                border_color="#161616",
+                text_color="#FFFFFF",
+                border_size=2
+            )
         }
     }
 
@@ -287,5 +419,5 @@ if __name__ == "__main__":
         config="SimpleDecoder",
         dataset="datasets/train/directions/Simple_example.txt",
         directions_task=True,
-        window_size=(1600,720)
+        window_size=(1280,720)
     )
