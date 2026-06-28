@@ -498,8 +498,12 @@ class ScreenMatrix:
 
 class UIMetricsTable:
     def __init__(self, x, y, width, height, col_weights, row_weights, data,
-                 bg_color="#223344", text_color="#FFFFFF", border_color=None,
-                 border_size=0, cell_bg_color=None):
+                 bg_color="#161616", text_color="#FFFFFF",
+                 cell_bg_color="#223344", border_color=None, border_size=0,
+                 cell_padding=6, corner_radius=8, row_alt_shade=0.05,
+                 title_row=False, title_col=False,
+                 title_bg_color=None, title_text_color=None,
+                 title_font=None, title_border_color=None):
         self.raw_x = x
         self.raw_y = y
         self.raw_w = width
@@ -507,11 +511,29 @@ class UIMetricsTable:
         self.col_weights = col_weights
         self.row_weights = row_weights
         self.data = data
+
         self.bg_color = pygame.Color(bg_color)
         self.text_color = pygame.Color(text_color)
-        self.border_color = pygame.Color(border_color) if border_color else self.text_color
+        self.cell_bg_color = pygame.Color(cell_bg_color) if cell_bg_color else pygame.Color(bg_color)
+        self.cell_padding = cell_padding
+        self.corner_radius = corner_radius
+        self.row_alt_shade = row_alt_shade
         self.border_size = border_size
-        self.cell_bg_color = pygame.Color(cell_bg_color) if cell_bg_color else None
+
+        default_border = (self.cell_bg_color.lerp(pygame.Color("white"), 0.15)
+                           if self.cell_bg_color else self.text_color)
+        self.border_color = pygame.Color(border_color) if border_color else default_border
+
+        self.title_row = title_row
+        self.title_col = title_col
+
+        default_title_bg = (self.cell_bg_color.lerp(pygame.Color("white"), 0.25)
+                             if self.cell_bg_color else pygame.Color("#2A93CB"))
+        self.title_bg_color = pygame.Color(title_bg_color) if title_bg_color else default_title_bg
+        self.title_text_color = pygame.Color(title_text_color) if title_text_color else self.text_color
+        self.title_border_color = (pygame.Color(title_border_color) if title_border_color
+                                    else self.title_bg_color.lerp(pygame.Color("black"), 0.2))
+        self.title_font = title_font
 
     def get_rect(self, screen_w, screen_h) -> pygame.Rect:
         return pygame.Rect(
@@ -523,39 +545,52 @@ class UIMetricsTable:
 
     def draw(self, screen: pygame.Surface, font: pygame.font.Font):
         rect = self.get_rect(screen.get_width(), screen.get_height())
-        pygame.draw.rect(screen, self.bg_color, rect)
+        pygame.draw.rect(screen, self.bg_color, rect, border_radius=self.corner_radius + 4)
 
         total_col = sum(self.col_weights)
         total_row = sum(self.row_weights)
         col_widths = [rect.width * w / total_col for w in self.col_weights]
         row_heights = [rect.height * h / total_row for h in self.row_weights]
 
+        title_font = self.title_font or font
+
         for i, row in enumerate(self.data):
+            y = rect.y + sum(row_heights[:i])
+            is_header_row = self.title_row and i == 0
+            body_row_index = i - (1 if self.title_row else 0)
+
             for j, cell_text in enumerate(row):
                 x = rect.x + sum(col_widths[:j])
-                y = rect.y + sum(row_heights[:i])
-                inner_x = x + self.border_size
-                inner_y = y + self.border_size
-                inner_w = max(0, col_widths[j] - 2 * self.border_size)
-                inner_h = max(0, row_heights[i] - 2 * self.border_size)
-                if inner_w > 0 and inner_h > 0:
-                    cell_rect = pygame.Rect(inner_x, inner_y, inner_w, inner_h)
-                    if self.cell_bg_color:
-                        pygame.draw.rect(screen, self.cell_bg_color, cell_rect)
-                    text_surf = font.render(str(cell_text), True, self.text_color)
-                    text_rect = text_surf.get_rect(center=cell_rect.center)
-                    screen.blit(text_surf, text_rect)
+                is_header_col = self.title_col and j == 0
+                is_title_cell = is_header_row or is_header_col
 
-        color = self.border_color
-        x_pos = rect.x
-        for j in range(len(self.col_weights) - 1):
-            x_pos += col_widths[j]
-            pygame.draw.line(screen, color, (x_pos, rect.y), (x_pos, rect.y + rect.height), 1)
-        y_pos = rect.y
-        for i in range(len(self.row_weights) - 1):
-            y_pos += row_heights[i]
-            pygame.draw.line(screen, color, (rect.x, y_pos), (rect.x + rect.width, y_pos), 1)
-        pygame.draw.rect(screen, color, rect, 1)
+                outer = pygame.Rect(x, y, col_widths[j], row_heights[i])
+                cell_rect = outer.inflate(-self.cell_padding, -self.cell_padding)
+                if cell_rect.width <= 0 or cell_rect.height <= 0:
+                    continue
+
+                if is_title_cell:
+                    cell_color = self.title_bg_color
+                    cell_text_color = self.title_text_color
+                    cell_font = title_font
+                    outline_color = self.title_border_color
+                else:
+                    cell_color = self.cell_bg_color
+                    cell_text_color = self.text_color
+                    cell_font = font
+                    outline_color = self.border_color
+                    if self.row_alt_shade and body_row_index % 2 == 1:
+                        cell_color = cell_color.lerp(pygame.Color("white"), self.row_alt_shade)
+
+                if cell_color:
+                    pygame.draw.rect(screen, cell_color, cell_rect, border_radius=self.corner_radius)
+                    if self.border_size > 0:
+                        pygame.draw.rect(screen, outline_color, cell_rect,
+                                          self.border_size, border_radius=self.corner_radius)
+
+                text_surf = cell_font.render(str(cell_text), True, cell_text_color)
+                text_rect = text_surf.get_rect(center=cell_rect.center)
+                screen.blit(text_surf, text_rect)
 
 # App Run Functions
 
@@ -809,7 +844,7 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
                 x="90vh", y="10vh",
                 width="80vh", height="86.5vh",
                 col_weights=[3,2],
-                row_weights=[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                row_weights=[1]*15,
                 data=[
                     ["Corretude", ""],
                     ["Solução", ""],
@@ -828,10 +863,10 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
                     ["Caminho Conexo", ""],
                 ],
                 cell_bg_color="#112230",
-                bg_color="#161616",
-                border_color="#161616",
+                bg_color="#1E1E1E",
                 text_color="#FFFFFF",
-                border_size=1
+                border_size=1,
+                border_color="#000000",
             )
         }
     }
