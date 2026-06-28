@@ -275,7 +275,6 @@ def calculate_metrics(input_matrix, solv_matrix, pred_matrix, lab_size):
 
 
 def decoded_to_matrix(decoded):
-    """Extrai uma matriz de caracteres a partir de um bloco já decodificado (string)."""
     dec = decoded.split('\n')
     res = []
     for line in range(1, len(dec) - 1):
@@ -287,14 +286,6 @@ def decoded_to_matrix(decoded):
 
 
 def ids_to_matrix(ids, id_to_char, lab_size, extract_type="prompt"):
-    """
-    Converte uma sequência (1D) de token ids diretamente em uma matriz lab_size x lab_size,
-    sem precisar decodificar pra string primeiro. Útil para extrair métricas durante o
-    treino, a partir dos próprios tensores do batch (entrada, gabarito ou previsão).
-
-    extract_type="prompt":   tudo antes do primeiro <SOLUTION_START>/<COMPLETION_START>
-    extract_type="solution": tudo entre o START e o END (ou até o fim, se END não existir)
-    """
     token_list = ids.tolist() if hasattr(ids, "tolist") else list(ids)
     chars = [id_to_char.get(t, '') for t in token_list]
 
