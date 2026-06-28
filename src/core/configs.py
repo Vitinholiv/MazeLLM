@@ -1,6 +1,6 @@
 import torch
 from enum import Enum
-from src.data.preprocess import SimpleTokenizer
+from src.core.preprocess import SimpleTokenizer
 from src.architecture.models import MazeDecoder
 
 class ModelConfigs:

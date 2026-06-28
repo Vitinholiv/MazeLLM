@@ -7,7 +7,7 @@ from src.architecture.components import (
     DecoderTransformerBlock, 
     CrossDecoderTransformerBlock
 )
-from src.data.preprocess import MazeEmbedder 
+from src.core.preprocess import MazeEmbedder 
 
 class MazeEncoder(nn.Module):
     """
