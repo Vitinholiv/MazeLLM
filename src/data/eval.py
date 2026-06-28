@@ -3,6 +3,7 @@ import torch
 import pygame
 import itertools
 from typing import Union
+from collections import deque
 from src.general.configs import init, ModelConfigs
 from src.data.preprocess import build_dataloader
 
@@ -21,6 +22,255 @@ def parse_dim(val: Union[int, float, str], screen_w: int, screen_h: int) -> int:
         except ValueError:
             pass
     return 0
+
+DIRS = {'U': (-1, 0), 'D': (1, 0), 'L': (0, -1), 'R': (0, 1)}
+def normalize_grid(matrix, lab_size, fill='#'):
+    grid = []
+    for r in range(lab_size):
+        row = list(matrix[r][:lab_size]) if r < len(matrix) else []
+        row = row + [fill] * (lab_size - len(row))
+        grid.append(row)
+    return grid
+
+def in_bounds(pos, lab_size):
+    r, c = pos
+    return 0 <= r < lab_size and 0 <= c < lab_size
+
+def find_all_positions(grid, ch, lab_size):
+    return [(r, c) for r in range(lab_size) for c in range(lab_size) if grid[r][c] == ch]
+
+def check_violation(pred_grid, input_grid, ch, lab_size):
+    pred_positions = find_all_positions(pred_grid, ch, lab_size)
+    input_positions = find_all_positions(input_grid, ch, lab_size)
+    if len(pred_positions) != 1 or not input_positions:
+        return True, (pred_positions[0] if len(pred_positions) == 1 else None)
+    violated = pred_positions[0] != input_positions[0]
+    return violated, pred_positions[0]
+
+def unique_directional_neighbor(grid, pos, lab_size):
+    cands = []
+    for dr, dc in DIRS.values():
+        npos = (pos[0] + dr, pos[1] + dc)
+        if in_bounds(npos, lab_size) and grid[npos[0]][npos[1]] in DIRS:
+            cands.append(npos)
+    return cands[0] if len(cands) == 1 else None
+
+def find_predecessor(grid, input_grid, pos, lab_size):
+    cands = []
+    for ch, (dr, dc) in DIRS.items():
+        npos = (pos[0] - dr, pos[1] - dc)
+        if in_bounds(npos, lab_size) and grid[npos[0]][npos[1]] == ch and input_grid[npos[0]][npos[1]] != '#':
+            cands.append(npos)
+    return cands[0] if len(cands) == 1 else None
+
+def walk_chain_forward(grid, start_pos, lab_size, max_steps):
+    visited, seen, cur = [], set(), start_pos
+    for _ in range(max_steps):
+        if not in_bounds(cur, lab_size) or cur in seen:
+            return visited, None
+        seen.add(cur)
+        ch = grid[cur[0]][cur[1]]
+        if ch not in DIRS:
+            return visited, cur
+        visited.append(cur)
+        dr, dc = DIRS[ch]
+        cur = (cur[0] + dr, cur[1] + dc)
+    return visited, None
+
+def walk_chain_forward_blocked(grid, input_grid, start_pos, lab_size, max_steps):
+    cur = start_pos
+    for _ in range(max_steps):
+        if not in_bounds(cur, lab_size):
+            return cur
+        ch = grid[cur[0]][cur[1]]
+        if ch not in DIRS:
+            return cur
+        dr, dc = DIRS[ch]
+        nxt = (cur[0] + dr, cur[1] + dc)
+        if not in_bounds(nxt, lab_size) or input_grid[nxt[0]][nxt[1]] == '#':
+            return cur
+        cur = nxt
+    return cur
+
+def trace_predecessors(grid, input_grid, start_pos, lab_size, max_steps):
+    positions, cur = [], start_pos
+    for _ in range(max_steps):
+        pred = find_predecessor(grid, input_grid, cur, lab_size)
+        if pred is None:
+            break
+        positions.append(pred)
+        cur = pred
+    return positions
+
+def is_neighbor(a, b):
+    if a is None or b is None:
+        return False
+    return (abs(a[0] - b[0]) == 1 and a[1] == b[1]) or (abs(a[1] - b[1]) == 1 and a[0] == b[0])
+
+def bfs_distance(input_grid, start, end, lab_size):
+    if start is None or end is None:
+        return -1
+    if start == end:
+        return 0
+    visited = {start}
+    q = deque([(start, 0)])
+    while q:
+        pos, d = q.popleft()
+        for dr, dc in DIRS.values():
+            npos = (pos[0] + dr, pos[1] + dc)
+            if in_bounds(npos, lab_size) and npos not in visited and input_grid[npos[0]][npos[1]] != '#':
+                if npos == end:
+                    return d + 1
+                visited.add(npos)
+                q.append((npos, d + 1))
+    return -1
+
+def calculate_metrics(input_matrix, solv_matrix, pred_matrix, lab_size):
+    input_grid = normalize_grid(input_matrix, lab_size)
+    solv_grid = normalize_grid(solv_matrix, lab_size)
+    pred_grid = normalize_grid(pred_matrix, lab_size)
+    max_steps = lab_size * lab_size + 5
+    results = {}
+
+    s_input_pos = next(iter(find_all_positions(input_grid, 'S', lab_size)), None)
+
+    # Início / Final Violado
+    start_violated, s_pred_pos = check_violation(pred_grid, input_grid, 'S', lab_size)
+    end_violated, e_pred_pos = check_violation(pred_grid, input_grid, 'E', lab_size)
+    results['Início Violado'] = "Sim" if start_violated else "Não"
+    results['Final Violado'] = "Sim" if end_violated else "Não"
+
+    # Sequência do gabarito (forward)
+    gt_first = unique_directional_neighbor(solv_grid, s_input_pos, lab_size) if s_input_pos else None
+    gt_visited, gt_landing = walk_chain_forward(solv_grid, gt_first, lab_size, max_steps) if gt_first else ([], None)
+    gt_dirs = [solv_grid[p[0]][p[1]] for p in gt_visited]
+
+    # Sequência prevista (forward, completa)
+    pred_first = None if start_violated else unique_directional_neighbor(pred_grid, s_pred_pos, lab_size)
+    pred_visited, pred_landing = walk_chain_forward(pred_grid, pred_first, lab_size, max_steps) if pred_first else ([], None)
+    pred_dirs = [pred_grid[p[0]][p[1]] for p in pred_visited]
+
+    # Corretude / Solução
+    all_free = all(input_grid[p[0]][p[1]] != '#' for p in pred_visited)
+    is_correct = (not start_violated and not end_violated and pred_first is not None
+                  and pred_landing == e_pred_pos and all_free)
+    if is_correct:
+        is_otima = (pred_dirs == gt_dirs) or (len(pred_dirs) == len(gt_dirs))
+        results['Solução'] = "Ótima" if is_otima else "Correta"
+    else:
+        results['Solução'] = "Incorreta"
+
+    # Tokens Alterados / Ótimos / Diferentes
+    def hamming(a, b):
+        return sum(1 for r in range(lab_size) for c in range(lab_size) if a[r][c] != b[r][c])
+    results['Tokens Alterados'] = hamming(pred_grid, input_grid)
+    results['Tokens Ótimos'] = hamming(solv_grid, input_grid)
+    results['Tokens Diferentes'] = hamming(solv_grid, pred_grid)
+
+    # Paredes / Espaços Violados
+    paredes_violadas = espacos_violados = 0
+    for r in range(lab_size):
+        for c in range(lab_size):
+            was_wall, is_wall = input_grid[r][c] == '#', pred_grid[r][c] == '#'
+            if was_wall and not is_wall:
+                paredes_violadas += 1
+            elif not was_wall and is_wall:
+                espacos_violados += 1
+    results['Paredes Violadas'] = paredes_violadas
+    results['Espaços Violados'] = espacos_violados
+
+    # Progresso Direto
+    if pred_first is None:
+        progresso_direto = 0
+    else:
+        k = 0
+        while k < len(gt_dirs) and k < len(pred_dirs) and pred_dirs[k] == gt_dirs[k]:
+            k += 1
+        bonus = (k == len(gt_dirs) == len(pred_dirs)) and (pred_landing == e_pred_pos) and not end_violated
+        progresso_direto = k + (1 if bonus else 0)
+    results['Progresso Direto'] = progresso_direto
+
+    # Progresso Inverso
+    gt_rev_dirs = list(reversed(gt_dirs))
+    if end_violated:
+        progresso_inverso = 0
+        inv_positions = []
+    else:
+        inv_positions = trace_predecessors(pred_grid, input_grid, e_pred_pos, lab_size, max_steps)
+        inv_dirs = [pred_grid[p[0]][p[1]] for p in inv_positions]
+        k = 0
+        while k < len(gt_rev_dirs) and k < len(inv_dirs) and inv_dirs[k] == gt_rev_dirs[k]:
+            k += 1
+        inv_landing = inv_positions[-1] if inv_positions else e_pred_pos
+        bonus = (k == len(gt_rev_dirs) == len(inv_dirs)) and is_neighbor(inv_landing, s_pred_pos) and not start_violated
+        progresso_inverso = k + (1 if bonus else 0)
+    results['Progresso Inverso'] = progresso_inverso
+
+    # Distância Direta / Inversa
+    fallback_dist = lab_size ** 2
+    if s_pred_pos is None or e_pred_pos is None:
+        results['Distância Direta'] = fallback_dist
+        results['Distância Inversa'] = fallback_dist
+    else:
+        dist_first = unique_directional_neighbor(pred_grid, s_pred_pos, lab_size)
+        if dist_first is None:
+            dd = bfs_distance(input_grid, s_pred_pos, e_pred_pos, lab_size)
+        else:
+            stop_pos = walk_chain_forward_blocked(pred_grid, input_grid, dist_first, lab_size, max_steps)
+            dd = 0 if stop_pos == e_pred_pos else bfs_distance(input_grid, stop_pos, e_pred_pos, lab_size)
+        results['Distância Direta'] = dd if dd != -1 else fallback_dist
+
+        dist_inv_positions = trace_predecessors(pred_grid, input_grid, e_pred_pos, lab_size, max_steps)
+        if not dist_inv_positions:
+            di = bfs_distance(input_grid, s_pred_pos, e_pred_pos, lab_size)
+        else:
+            stop_pos = dist_inv_positions[-1]
+            reached_start = (stop_pos == s_pred_pos) or (dist_first is not None and stop_pos == dist_first)
+            di = 0 if reached_start else bfs_distance(input_grid, stop_pos, s_pred_pos, lab_size)
+        results['Distância Inversa'] = di if di != -1 else fallback_dist
+
+    # Caminho Único / Conexo
+    forward_set = set(pred_visited)
+    backward_set = set(inv_positions) if not end_violated else set()
+    all_dir_positions = set()
+    for ch in DIRS:
+        all_dir_positions.update(find_all_positions(pred_grid, ch, lab_size))
+
+    results['Caminho Único'] = "Sim" if (forward_set | backward_set) == all_dir_positions else "Não"
+    results['Caminho Conexo'] = "Sim" if (forward_set == all_dir_positions or backward_set == all_dir_positions) else "Não"
+
+    score = {
+        'Solução': 1.0 if results['Solução'] == 'Ótima' else 0.8 if results['Solução'] == 'Correta' else 0.0,
+        'Tokens Diferentes': 1.0 - min(abs(results['Tokens Diferentes'] / results["Tokens Ótimos"]),1.0),
+        'Progresso Direto': results['Progresso Direto']/(results['Tokens Ótimos']+1),
+        'Progresso Inverso': results['Progresso Inverso']/(results['Tokens Ótimos']+1),
+        'Distância Direta': (1/(results['Distância Direta']+1))**0.5,
+        'Distância Inversa': (1/(results['Distância Inversa']+1))**0.5,
+        'Início Violado': 1.0 if results['Início Violado'] == 'Não' else 0.0,
+        'Final Violado': 1.0 if results['Final Violado'] == 'Não' else 0.0,
+        'Paredes Violadas': (1/(results['Paredes Violadas']+1))**0.5,
+        'Espaços Violados': (1/(results['Espaços Violados']+1))**0.5,
+        'Caminho Único': 0.0 if results['Caminho Único'] == 'Não' else 1.0,
+        'Caminho Conexo': 0.0 if results['Caminho Conexo'] == 'Não' else 1.0
+    }
+
+    results['Corretude'] = (
+        1.0 * score['Solução'] +
+        0.6 * score['Tokens Diferentes'] +
+        0.3 * score['Progresso Direto'] +
+        0.2 * score['Progresso Inverso'] +
+        1.6 * score['Distância Direta'] +
+        0.3 * score['Distância Inversa'] +
+        1.2 * score['Início Violado'] +
+        1.2 * score['Final Violado'] +
+        2.5 * score['Paredes Violadas'] +
+        1.5 * score['Espaços Violados'] +
+        0.8 * score['Caminho Único'] +
+        0.3 * score['Caminho Conexo']
+    ) / 11.5
+    results['Corretude'] = max(0,min(int(results['Corretude']*1000)/1000.0,1))
+
+    return {k: str(v) for k, v in results.items()}
 
 def decoded_to_matrix(decoded):
     dec = decoded.split('\n')
@@ -50,13 +300,13 @@ def load_next_labyrinth(blocks, tokenizer, directions_task, model, device, conf,
 
     if directions_task:
         if tokenizer_type == 'individual':
-            yield []
+            yield {'matrices': [], 'metrics': {}}
             return
         elif tokenizer_type == 'wall_encoded':
-            yield []
+            yield {'matrices': [], 'metrics': {}}
             return
         elif tokenizer_type == 'free_edges':
-            yield []
+            yield {'matrices': [], 'metrics': {}}
             return
     else:
         if tokenizer_type == 'individual':
@@ -88,13 +338,19 @@ def load_next_labyrinth(blocks, tokenizer, directions_task, model, device, conf,
                 
             full_str = tokenizer.decode(full_ids)
             pred_str = '<SOLUTION_START>' + full_str.split('<SOLUTION_START>')[1]
-            yield [decoded_to_matrix(input_str), decoded_to_matrix(solv_str), decoded_to_matrix(pred_str)]
+
+            input_matrix = decoded_to_matrix(input_str)
+            solv_matrix = decoded_to_matrix(solv_str)
+            pred_matrix = decoded_to_matrix(pred_str)
+            metrics = calculate_metrics(input_matrix, solv_matrix, pred_matrix, conf['lab_size'])
+
+            yield {'matrices': [input_matrix, solv_matrix, pred_matrix], 'metrics': metrics}
             return
         elif tokenizer_type == 'wall_encoded':
-            yield []
+            yield {'matrices': [], 'metrics': {}}
             return
         elif tokenizer_type == 'free_edges':
-            yield []
+            yield {'matrices': [], 'metrics': {}}
             return
 
 # General Classes
@@ -208,9 +464,9 @@ class ScreenMatrix:
 
                 if token == "#": pass
                 elif token == " ": bg = pygame.Color("#FFFFFF")
-                elif token == "S": bg, char, fg = pygame.Color("#FFFFFF"), "S", pygame.Color("#069E12")
-                elif token == "E": bg, char, fg = pygame.Color("#FFFFFF"), "E", pygame.Color("#FF0000")
-                elif token in ["U", "D", "L", "R"]: bg, char, fg = pygame.Color("#FFFFFF"), token, pygame.Color("#FFD700")
+                elif token == "S": bg, char, fg = pygame.Color("#18D227"), "S", pygame.Color("#000000")
+                elif token == "E": bg, char, fg = pygame.Color("#FF5151"), "E", pygame.Color("#000000")
+                elif token in ["U", "D", "L", "R"]: bg, char, fg = pygame.Color("#FFE555"), token, pygame.Color("#000000")
                 
                 elif token.startswith("."):
                     bg = pygame.Color("#FFFFFF")
@@ -373,12 +629,19 @@ def iteration(blocks, model, tokenizer, task_name, conf, device, display_data, e
     if display_data['screen_sample'].get('loading') and gen is not None:
         try:
             value = next(gen)
-            if isinstance(value, list):
-                matrices = value
+            if isinstance(value, dict):
+                matrices = value.get('matrices', [])
                 if matrices and len(matrices) == 3:
                     if matrices[0] is not None: display_data['screen_sample']['labyrinths'][0].update_from_labyrinth(matrices[0])
                     if matrices[1] is not None: display_data['screen_sample']['labyrinths'][1].update_from_labyrinth(matrices[1])
                     if matrices[2] is not None: display_data['screen_sample']['labyrinths'][2].update_from_labyrinth(matrices[2])
+
+                metrics = value.get('metrics', {})
+                table = display_data['screen_sample']['table']
+                for row in table.data:
+                    if row[0] in metrics:
+                        row[1] = metrics[row[0]]
+
                 display_data['screen_sample']['loading'] = False
                 display_data['screen_sample']['gen'] = None
             else:
