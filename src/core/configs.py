@@ -1,7 +1,7 @@
 import torch
 from enum import Enum
 from src.core.preprocess import SimpleTokenizer
-from src.architecture.models import MazeDecoder
+from src.architecture.models import MazeDecoder, MazeDencoder
 
 class ModelConfigs:
 
@@ -11,6 +11,22 @@ class ModelConfigs:
         "tokenizer":      SimpleTokenizer,
         "tokenizer_type": "individual",
         "dataset_mode":   "decoder",
+        "tasks":          ["completion", "directions"],
+        "context_length": 1024,
+        "emb_dim":        256,
+        "n_heads":        8,
+        "n_layers":       6,
+        "drop_rate":      0.1,
+        "qkv_bias":       False,
+        "lab_size":       21
+    }
+
+    SimpleDencoder = {
+        "name":           "SimpleDencoder",
+        "class":          MazeDencoder,
+        "tokenizer":      SimpleTokenizer,
+        "tokenizer_type": "individual",
+        "dataset_mode":   "dencoder",
         "tasks":          ["completion", "directions"],
         "context_length": 1024,
         "emb_dim":        256,

@@ -1,12 +1,8 @@
-import os
 import torch
 import pygame
-import itertools
 from typing import Union
-from collections import deque
 from src.core.configs import init, ModelConfigs
-from src.core.preprocess import build_dataloader
-from src.general.metrics import calculate_metrics, decoded_to_matrix
+from src.general.metrics import calculate_metrics, calculate_direction_metrics, decoded_to_matrix, decoded_to_directions, directions_list_to_grid
 
 # Auxiliary Functions
 
@@ -65,7 +61,44 @@ def load_next_labyrinth(blocks, tokenizer, directions_task, model, device, conf,
 
     if directions_task:
         if tokenizer_type == 'individual':
-            yield {'matrices': [], 'metrics': {}}
+            steps = (conf['lab_size']**2)
+            with torch.no_grad():
+                if conf["dataset_mode"] == "decoder":
+                    seq = torch.tensor(input_ids + [start_id], device=device).unsqueeze(0)
+                    for i in range(steps):
+                        logits = model(seq)
+                        next_token = logits[:, -1:, :].argmax(dim=-1)
+                        seq = torch.cat([seq, next_token], dim=1)
+                        yield i / steps
+                    full_ids = seq[0].tolist()
+
+                elif conf["dataset_mode"] == "dencoder":
+                    m_in = torch.tensor(input_ids, device=device).unsqueeze(0)
+                    r_in = torch.tensor([start_id], device=device).unsqueeze(0)
+                    context = model.encode(m_in)
+                    for i in range(steps):
+                        logits = model.decode_step(r_in, context)
+                        next_token = logits[:, -1:, :].argmax(dim=-1)
+                        r_in = torch.cat([r_in, next_token], dim=1)
+                        yield i / steps
+                    full_ids = input_ids + r_in[0].tolist()
+
+                else:
+                    raise NotImplementedError('EncoderNotImplemented')
+
+            full_str = tokenizer.decode(full_ids)
+            pred_str = '<SOLUTION_START>' + full_str.split('<SOLUTION_START>')[1]
+
+            input_matrix = decoded_to_matrix(input_str)
+            solv_directions = decoded_to_directions(solv_str)
+            pred_directions = decoded_to_directions(pred_str)
+            solv_matrix = directions_list_to_grid(input_matrix, solv_directions, conf['lab_size'])
+            pred_matrix = directions_list_to_grid(input_matrix, pred_directions, conf['lab_size'])
+
+            results, score = calculate_direction_metrics(input_matrix, solv_directions, pred_directions, conf['lab_size'])
+            metrics = colorize_metrics(results, score)
+
+            yield {'matrices': [input_matrix, solv_matrix, pred_matrix], 'metrics': metrics}
             return
         elif tokenizer_type == 'wall_encoded':
             yield {'matrices': [], 'metrics': {}}
@@ -87,20 +120,19 @@ def load_next_labyrinth(blocks, tokenizer, directions_task, model, device, conf,
                     full_ids = seq[0].tolist()
 
                 elif conf["dataset_mode"] == "dencoder":
-                    m_in = torch.tensor(input_ids).unsqueeze(0).to(device)
-                    r_in = torch.tensor([start_id]).unsqueeze(0).to(device)
-                    for _ in range(steps):
-                        logits = model(m_in, r_in)
-                        next_token = logits[0, -1, :].argmax().item()
-                        
-                        r_in = torch.cat([r_in, torch.tensor([[next_token]]).to(device)], dim=1)
-                        if next_token == end_id:
-                            break
+                    m_in = torch.tensor(input_ids, device=device).unsqueeze(0)
+                    r_in = torch.tensor([start_id], device=device).unsqueeze(0)
+                    context = model.encode(m_in)
+                    for i in range(steps):
+                        logits = model.decode_step(r_in, context)
+                        next_token = logits[:, -1:, :].argmax(dim=-1)
+                        r_in = torch.cat([r_in, next_token], dim=1)
+                        yield i / steps
                     full_ids = input_ids + r_in[0].tolist()
 
                 else:
                     raise NotImplemented('EncoderNotImplemented')
-                
+            
             full_str = tokenizer.decode(full_ids)
             pred_str = '<SOLUTION_START>' + full_str.split('<SOLUTION_START>')[1]
 
@@ -526,6 +558,39 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
     ]
 
     # General Objects
+    if directions_task:
+        table_data = [
+            ["Corretude", ""],
+            ["Solução", ""],
+            ["Edit Distance", ""],
+            ["Tokens Ótimos", ""],
+            ["Tokens Alterados", ""],
+            ["Tokens Diferentes", ""],
+            ["Progresso Direto", ""],
+            ["Distância Direta", ""],
+            ["Paredes Violadas", ""],
+        ]
+        table_h = "52vh"
+    else:
+        table_data = [
+            ["Corretude", ""],
+            ["Solução", ""],
+            ["Tokens Alterados", ""],
+            ["Tokens Ótimos", ""],
+            ["Tokens Diferentes", ""],
+            ["Progresso Direto", ""],
+            ["Progresso Inverso", ""],
+            ["Distância Direta", ""],
+            ["Distância Inversa", ""],
+            ["Paredes Violadas", ""],
+            ["Espaços Violados", ""],
+            ["Início Violado", ""],
+            ["Final Violado", ""],
+            ["Caminho Único", ""],
+            ["Caminho Conexo", ""],
+        ]
+        table_h = "86.5vh"
+
     display_data = {
         "current_screen": 'sample',
         "buttons": [
@@ -622,26 +687,10 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
             ],
             "table": UIMetricsTable(
                 x="90vh", y="10vh",
-                width="80vh", height="86.5vh",
+                width="80vh", height=table_h,
                 col_weights=[3,2],
                 row_weights=[1]*15,
-                data=[
-                    ["Corretude", ""],
-                    ["Solução", ""],
-                    ["Tokens Alterados", ""],
-                    ["Tokens Ótimos", ""],
-                    ["Tokens Diferentes", ""],
-                    ["Progresso Direto", ""],
-                    ["Progresso Inverso", ""],
-                    ["Distância Direta", ""],
-                    ["Distância Inversa", ""],
-                    ["Paredes Violadas", ""],
-                    ["Espaços Violados", ""],
-                    ["Início Violado", ""],
-                    ["Final Violado", ""],
-                    ["Caminho Único", ""],
-                    ["Caminho Conexo", ""],
-                ],
+                data=table_data,
                 cell_bg_color="#112230",
                 bg_color="#1E1E1E",
                 text_color="#FFFFFF",
@@ -663,11 +712,36 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
             render(screen, fonts, display_data, model, task_name)
     pygame.quit()
 
+#run_id="check/runsbetter/SimpleDecoderButBefore/1782357949889040700_epoch_20.pt",
 if __name__ == "__main__":
     evaluate(
         run_id="check/runsbetter/SimpleDecoderButBefore/1782357949889040700_epoch_20.pt",
         config="SimpleDecoder",
-        dataset="datasets/train/completion/Simple_example.txt",
+        dataset="datasets/test/completion/Simple_example.txt",
         directions_task=False,
         window_size=(1280,720)
     )
+
+
+'''
+if __name__ == "__main__":
+    evaluate(
+        run_id="check/runsbetter/SimpleDecoderButBefore/1782429962265243100_epoch_20.pt",
+        config="SimpleDecoder",
+        dataset="datasets/test/directions/Simple_example.txt",
+        directions_task=True,
+        window_size=(1280,720)
+    )
+'''
+
+
+'''
+if __name__ == "__main__":
+    evaluate(
+        run_id="check/runsbetter/SimpleDecoderButBefore/1782357949889040700_epoch_20.pt",
+        config="SimpleDecoder",
+        dataset="datasets/test/completion/Simple_example.txt",
+        directions_task=False,
+        window_size=(1280,720)
+    )
+'''

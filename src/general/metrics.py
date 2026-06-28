@@ -115,17 +115,81 @@ def bfs_distance(input_grid, start, end, lab_size):
     return -1
 
 
-def calculate_metrics(input_matrix, solv_matrix, pred_matrix, lab_size):
-    """
-    Calcula métricas de qualidade de uma solução de labirinto prevista,
-    comparando-a com o labirinto de entrada e o gabarito.
+def directions_list_to_grid(input_matrix, directions, lab_size):
+    grid = normalize_grid(input_matrix, lab_size)
+    s_pos = next(iter(find_all_positions(grid, 'S', lab_size)), None)
+    if s_pos is None or not directions:
+        return grid
 
-    Retorna:
-        results: dict com valores "humanos" (str categórico ou número),
-                  incluindo 'Corretude' como float em [0,1].
-        score:    dict com a versão normalizada de cada métrica em [0,1],
-                  pronta para tirar média/logar (ex: TensorBoard).
-    """
+    positions = [s_pos]
+    cur = s_pos
+    for d in directions:
+        if d not in DIRS:
+            break
+        dr, dc = DIRS[d]
+        nxt = (cur[0] + dr, cur[1] + dc)
+        if not in_bounds(nxt, lab_size):
+            break
+        positions.append(nxt)
+        cur = nxt
+
+    for k in range(1, len(positions) - 1):
+        pk = positions[k]
+        grid[pk[0]][pk[1]] = directions[k]
+
+    return grid
+
+
+def decoded_to_directions(decoded):
+    rows = decoded_to_matrix(decoded)
+    return rows[0] if rows else []
+
+def edit_distance(a, b):
+    n, m = len(a), len(b)
+    if n == 0:
+        return m
+    if m == 0:
+        return n
+    if n < m:
+        a, b = b, a
+        n, m = m, n
+    prev = list(range(m + 1))
+    for i in range(1, n + 1):
+        curr = [i] + [0] * m
+        ai = a[i - 1]
+        for j in range(1, m + 1):
+            cost_sub = prev[j - 1] + (0 if ai == b[j - 1] else 1)
+            cost_del = prev[j] + 1
+            cost_ins = curr[j - 1] + 1
+            curr[j] = min(cost_sub, cost_del, cost_ins)
+        prev = curr
+    return prev[m]
+
+
+def ids_to_directions(ids, id_to_char, extract_type="prompt"):
+    token_list = ids.tolist() if hasattr(ids, "tolist") else list(ids)
+    chars = [id_to_char.get(t, '') for t in token_list]
+
+    sol_start, sol_end = -1, -1
+    for i, c in enumerate(chars):
+        if c in ['<SOLUTION_START>', '<COMPLETION_START>']:
+            sol_start = i
+        elif c in ['<SOLUTION_END>', '<COMPLETION_END>']:
+            sol_end = i
+            break
+
+    if extract_type == "solution":
+        if sol_end == -1:
+            sol_end = len(chars)
+        block_chars = chars[sol_start + 1: sol_end]
+    else:
+        end_idx = sol_start if sol_start != -1 else len(chars)
+        block_chars = chars[:end_idx]
+
+    return [c for c in block_chars if c != '\n' and not c.startswith('<') and c != '<PAD>']
+
+
+def calculate_metrics(input_matrix, solv_matrix, pred_matrix, lab_size):
     input_grid = normalize_grid(input_matrix, lab_size)
     solv_grid = normalize_grid(solv_matrix, lab_size)
     pred_grid = normalize_grid(pred_matrix, lab_size)
@@ -268,6 +332,90 @@ def calculate_metrics(input_matrix, solv_matrix, pred_matrix, lab_size):
         0.6 * score['Caminho Único'] +
         0.3 * score['Caminho Conexo']
     ) / 10.0
+    results['Corretude'] = max(0.0, min(int(results['Corretude'] * 1000) / 1000.0, 1.0))
+    score['Corretude'] = results['Corretude']
+
+    return results, score
+
+def calculate_direction_metrics(input_matrix, solv_directions, pred_directions, lab_size):
+    input_grid = normalize_grid(input_matrix, lab_size)
+    solv_grid = directions_list_to_grid(input_matrix, solv_directions, lab_size)
+    pred_grid = directions_list_to_grid(input_matrix, pred_directions, lab_size)
+    max_steps = lab_size * lab_size + 5
+    results = {}
+
+    s_input_pos = next(iter(find_all_positions(input_grid, 'S', lab_size)), None)
+    start_violated, s_pred_pos = check_violation(pred_grid, input_grid, 'S', lab_size)
+    end_violated, e_pred_pos = check_violation(pred_grid, input_grid, 'E', lab_size)
+
+    gt_first = unique_directional_neighbor(solv_grid, s_input_pos, lab_size) if s_input_pos else None
+    gt_visited, gt_landing = walk_chain_forward(solv_grid, gt_first, lab_size, max_steps) if gt_first else ([], None)
+    gt_chain_dirs = [solv_grid[p[0]][p[1]] for p in gt_visited]
+
+    pred_first = None if start_violated else unique_directional_neighbor(pred_grid, s_pred_pos, lab_size)
+    pred_visited, pred_landing = walk_chain_forward(pred_grid, pred_first, lab_size, max_steps) if pred_first else ([], None)
+    pred_chain_dirs = [pred_grid[p[0]][p[1]] for p in pred_visited]
+
+    all_free = all(input_grid[p[0]][p[1]] != '#' for p in pred_visited)
+    is_correct = (not start_violated and not end_violated and pred_first is not None
+                  and pred_landing == e_pred_pos and all_free)
+    if is_correct:
+        is_otima = (pred_chain_dirs == gt_chain_dirs) or (len(pred_chain_dirs) == len(gt_chain_dirs))
+        results['Solução'] = "Ótima" if is_otima else "Correta"
+    else:
+        results['Solução'] = "Incorreta"
+
+    results['Edit Distance'] = edit_distance(list(solv_directions), list(pred_directions))
+
+    results['Tokens Ótimos'] = len(solv_directions)
+    results['Tokens Alterados'] = len(pred_directions)
+    max_len = max(len(solv_directions), len(pred_directions))
+    diff_count = sum(
+        1 for i in range(max_len)
+        if (solv_directions[i] if i < len(solv_directions) else None) !=
+           (pred_directions[i] if i < len(pred_directions) else None)
+    )
+    results['Tokens Diferentes'] = diff_count
+
+    if pred_first is None:
+        progresso_direto = 0
+    else:
+        k = 0
+        while k < len(gt_chain_dirs) and k < len(pred_chain_dirs) and pred_chain_dirs[k] == gt_chain_dirs[k]:
+            k += 1
+        bonus = (k == len(gt_chain_dirs) == len(pred_chain_dirs)) and (pred_landing == e_pred_pos) and not end_violated
+        progresso_direto = k + (1 if bonus else 0)
+    results['Progresso Direto'] = progresso_direto
+
+    fallback_dist = lab_size ** 2
+    if s_pred_pos is None or e_pred_pos is None:
+        results['Distância Direta'] = fallback_dist
+    else:
+        dist_first = unique_directional_neighbor(pred_grid, s_pred_pos, lab_size)
+        if dist_first is None:
+            dd = bfs_distance(input_grid, s_pred_pos, e_pred_pos, lab_size)
+        else:
+            stop_pos = walk_chain_forward_blocked(pred_grid, input_grid, dist_first, lab_size, max_steps)
+            dd = 0 if stop_pos == e_pred_pos else bfs_distance(input_grid, stop_pos, e_pred_pos, lab_size)
+        results['Distância Direta'] = dd if dd != -1 else fallback_dist
+
+    paredes_violadas = 0
+    for r in range(lab_size):
+        for c in range(lab_size):
+            if input_grid[r][c] == '#' and pred_grid[r][c] != '#':
+                paredes_violadas += 1
+    results['Paredes Violadas'] = paredes_violadas
+
+    score = {
+        'Solução': 1.0 if results['Solução'] == 'Ótima' else 0.8 if results['Solução'] == 'Correta' else 0.0,
+        'Edit Distance': 1.0 - min(results['Edit Distance'] / max(results['Tokens Ótimos'], 1), 1.0),
+        'Tokens Diferentes': 1.0 - min(results['Tokens Diferentes'] / max(results['Tokens Ótimos'], 1), 1.0),
+        'Progresso Direto': results['Progresso Direto'] / (results['Tokens Ótimos'] + 1),
+        'Distância Direta': (1 / (results['Distância Direta'] + 1)) ** 0.5,
+        'Paredes Violadas': 1 / (results['Paredes Violadas'] + 1),
+    }
+
+    results['Corretude'] = sum(score.values()) / len(score)
     results['Corretude'] = max(0.0, min(int(results['Corretude'] * 1000) / 1000.0, 1.0))
     score['Corretude'] = results['Corretude']
 

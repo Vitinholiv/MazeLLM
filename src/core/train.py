@@ -8,7 +8,7 @@ from torch.optim import AdamW
 from torch.utils.tensorboard.writer import SummaryWriter
 from src.core.configs import init, ModelConfigs
 from src.core.preprocess import build_dataloader
-from src.general.metrics import calculate_metrics, ids_to_matrix
+from src.general.metrics import calculate_metrics, calculate_direction_metrics, ids_to_matrix, ids_to_directions
 
 def train(run_id: str, config: str, dataset: str, directions_task: bool, batch_size: int = 64,
           epochs: int = 10, lr: float = 3e-4, metric_log_interval: int = 50, metric_sample_count: int = 8):
@@ -65,10 +65,16 @@ def train(run_id: str, config: str, dataset: str, directions_task: bool, batch_s
         score_sums, score_count = {}, 0
         for i in range(n):
             input_matrix = ids_to_matrix(input_ids_batch[i].detach().cpu(), id_to_char, lab_size, "prompt")
-            target_matrix = ids_to_matrix(target_ids_batch[i].detach().cpu(), id_to_char, lab_size, "solution")
-            pred_matrix = ids_to_matrix(pred_ids_batch[i].detach().cpu(), id_to_char, lab_size, "solution")
 
-            _, score = calculate_metrics(input_matrix, target_matrix, pred_matrix, lab_size)
+            if directions_task:
+                solv_directions = ids_to_directions(target_ids_batch[i].detach().cpu(), id_to_char, "solution")
+                pred_directions = ids_to_directions(pred_ids_batch[i].detach().cpu(), id_to_char, "solution")
+                _, score = calculate_direction_metrics(input_matrix, solv_directions, pred_directions, lab_size)
+            else:
+                target_matrix = ids_to_matrix(target_ids_batch[i].detach().cpu(), id_to_char, lab_size, "solution")
+                pred_matrix = ids_to_matrix(pred_ids_batch[i].detach().cpu(), id_to_char, lab_size, "solution")
+                _, score = calculate_metrics(input_matrix, target_matrix, pred_matrix, lab_size)
+
             for k, v in score.items():
                 score_sums[k] = score_sums.get(k, 0.0) + v
             score_count += 1
@@ -139,11 +145,11 @@ def train(run_id: str, config: str, dataset: str, directions_task: bool, batch_s
 
 if __name__ == "__main__":
     train(
-        'Testyh',
-        'SimpleDecoder',
-        'datasets/train/completion/Simple_example.txt',
+        'Testy',
+        'SimpleDencoder',
+        'datasets/train/completion/Simple_dataset.txt',
         False,
-        batch_size=32,
+        batch_size=16,
         epochs=5,
-        lr=1e-3
+        lr=5e-4
     )
