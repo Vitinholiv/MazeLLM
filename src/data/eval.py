@@ -23,6 +23,16 @@ def parse_dim(val: Union[int, float, str], screen_w: int, screen_h: int) -> int:
             pass
     return 0
 
+def score_to_color(score):
+    score = max(0.0, min(1.0, score))
+    if score < 0.5:
+        t = score / 0.5
+        r, g, b = 255, int(255 * t), 0
+    else:
+        t = (score - 0.5) / 0.5
+        r, g, b = int(255 * (1 - t)), 255, 0
+    return f"#{r:02X}{g:02X}{b:02X}"
+
 DIRS = {'U': (-1, 0), 'D': (1, 0), 'L': (0, -1), 'R': (0, 1)}
 def normalize_grid(matrix, lab_size, fill='#'):
     grid = []
@@ -248,8 +258,8 @@ def calculate_metrics(input_matrix, solv_matrix, pred_matrix, lab_size):
         'Distância Inversa': (1/(results['Distância Inversa']+1))**0.5,
         'Início Violado': 1.0 if results['Início Violado'] == 'Não' else 0.0,
         'Final Violado': 1.0 if results['Final Violado'] == 'Não' else 0.0,
-        'Paredes Violadas': (1/(results['Paredes Violadas']+1))**0.5,
-        'Espaços Violados': (1/(results['Espaços Violados']+1))**0.5,
+        'Paredes Violadas': (1/(results['Paredes Violadas']+1)),
+        'Espaços Violados': (1/(results['Espaços Violados']+1)),
         'Caminho Único': 0.0 if results['Caminho Único'] == 'Não' else 1.0,
         'Caminho Conexo': 0.0 if results['Caminho Conexo'] == 'Não' else 1.0
     }
@@ -263,14 +273,24 @@ def calculate_metrics(input_matrix, solv_matrix, pred_matrix, lab_size):
         0.3 * score['Distância Inversa'] +
         1.2 * score['Início Violado'] +
         1.2 * score['Final Violado'] +
-        2.5 * score['Paredes Violadas'] +
-        1.5 * score['Espaços Violados'] +
-        0.8 * score['Caminho Único'] +
+        1.5 * score['Paredes Violadas'] +
+        1.2 * score['Espaços Violados'] +
+        0.6 * score['Caminho Único'] +
         0.3 * score['Caminho Conexo']
-    ) / 11.5
+    ) / 10.0
     results['Corretude'] = max(0,min(int(results['Corretude']*1000)/1000.0,1))
+    str_results = {}
+    for key, val in results.items():
+        if key == 'Corretude':
+            color = score_to_color(results['Corretude'])
+            str_results[key] = f"{color} {val}"
+        elif key in score:
+            color = score_to_color(max(0.0, min(1.0, score[key])))
+            str_results[key] = f"{color} {val}"
+        else:
+            str_results[key] = str(val)
 
-    return {k: str(v) for k, v in results.items()}
+    return str_results
 
 def decoded_to_matrix(decoded):
     dec = decoded.split('\n')
@@ -535,6 +555,18 @@ class UIMetricsTable:
                                     else self.title_bg_color.lerp(pygame.Color("black"), 0.2))
         self.title_font = title_font
 
+    @staticmethod
+    def _parse_color_prefix(text: str):
+        text = str(text)
+        if text.startswith('#') and len(text) >= 8 and text[7] == ' ':
+            hex_part = text[1:7]
+            try:
+                int(hex_part, 16)
+                return pygame.Color('#' + hex_part), text[8:]
+            except ValueError:
+                pass
+        return None, text
+
     def get_rect(self, screen_w, screen_h) -> pygame.Rect:
         return pygame.Rect(
             parse_dim(self.raw_x, screen_w, screen_h),
@@ -588,7 +620,9 @@ class UIMetricsTable:
                         pygame.draw.rect(screen, outline_color, cell_rect,
                                           self.border_size, border_radius=self.corner_radius)
 
-                text_surf = cell_font.render(str(cell_text), True, cell_text_color)
+                override_color, display_text = self._parse_color_prefix(cell_text)
+                final_color = override_color if override_color else cell_text_color
+                text_surf = cell_font.render(display_text, True, final_color)
                 text_rect = text_surf.get_rect(center=cell_rect.center)
                 screen.blit(text_surf, text_rect)
 
