@@ -1,3 +1,4 @@
+import os
 import torch
 import pygame
 from typing import Union
@@ -150,6 +151,139 @@ def load_next_labyrinth(blocks, tokenizer, directions_task, model, device, conf,
         elif tokenizer_type == 'free_edges':
             yield {'matrices': [], 'metrics': {}}
             return
+        
+def generate_one_sample_metrics(sample, tokenizer, directions_task, model, device, conf):
+    split_idx = sample.index('<SOLUTION_START>')
+    input_str = sample[:split_idx].strip()
+    solv_str = sample[split_idx:].strip()
+
+    input_ids = tokenizer.encode(input_str)
+    start_id = tokenizer.char_to_id['<SOLUTION_START>']
+    tokenizer_type = model.tokenizer_type
+
+    if tokenizer_type != 'individual':
+        return {}, {}
+
+    steps = (conf['lab_size'] ** 2) if directions_task else (conf['lab_size'] ** 2 + 2)
+
+    with torch.no_grad():
+        if conf["dataset_mode"] == "decoder":
+            seq = torch.tensor(input_ids + [start_id], device=device).unsqueeze(0)
+            max_steps = max(0, conf['context_length'] - seq.size(1))
+            steps = min(steps, max_steps)
+            for i in range(steps):
+                logits = model(seq)
+                next_token = logits[:, -1:, :].argmax(dim=-1)
+                seq = torch.cat([seq, next_token], dim=1)
+                yield i / steps if steps > 0 else 1.0
+            full_ids = seq[0].tolist()
+
+        elif conf["dataset_mode"] == "dencoder":
+            m_in = torch.tensor(input_ids, device=device).unsqueeze(0)
+            r_in = torch.tensor([start_id], device=device).unsqueeze(0)
+            context = model.encode(m_in)
+            max_steps = max(0, conf['context_length'] - r_in.size(1))
+            steps = min(steps, max_steps)
+            for i in range(steps):
+                logits = model.decode_step(r_in, context)
+                next_token = logits[:, -1:, :].argmax(dim=-1)
+                r_in = torch.cat([r_in, next_token], dim=1)
+                yield i / steps if steps > 0 else 1.0
+            full_ids = input_ids + r_in[0].tolist()
+
+        else:
+            raise NotImplementedError('EncoderNotImplemented')
+
+    full_str = tokenizer.decode(full_ids)
+    pred_str = '<SOLUTION_START>' + full_str.split('<SOLUTION_START>')[1]
+    input_matrix = decoded_to_matrix(input_str)
+
+    if directions_task:
+        solv_directions = decoded_to_directions(solv_str)
+        pred_directions = decoded_to_directions(pred_str)
+        results, score = calculate_direction_metrics(input_matrix, solv_directions, pred_directions, conf['lab_size'])
+    else:
+        solv_matrix = decoded_to_matrix(solv_str)
+        pred_matrix = decoded_to_matrix(pred_str)
+        results, score = calculate_metrics(input_matrix, solv_matrix, pred_matrix, conf['lab_size'])
+
+    return results, score
+
+
+def compute_dataset_metrics_gen(blocks, tokenizer, directions_task, model, device, conf):
+    total = len(blocks)
+    value_history = {}
+    score_history = {}
+    score_sums = {}
+    solucao_counts = {}
+    n = 0
+
+    if total == 0:
+        return {'avg_score': {}, 'value_history': {}, 'score_history': {}, 'solucao_counts': {}, 'n': 0}
+
+    for b_idx, sample in enumerate(blocks):
+        gen = generate_one_sample_metrics(sample, tokenizer, directions_task, model, device, conf)
+        results, score = {}, {}
+        try:
+            while True:
+                inner_progress = next(gen)
+                yield (b_idx + inner_progress) / total
+        except StopIteration as e:
+            if e.value is not None:
+                results, score = e.value
+
+        if results:
+            for k, v in results.items():
+                value_history.setdefault(k, []).append(v)
+            for k, v in score.items():
+                score_history.setdefault(k, []).append(v)
+                score_sums[k] = score_sums.get(k, 0.0) + v
+            if 'Acurácia' in results:
+                solucao_counts[results['Acurácia']] = solucao_counts.get(results['Acurácia'], 0) + 1
+            n += 1
+
+        yield (b_idx + 1) / total
+
+    avg_score = {k: total_v / n for k, total_v in score_sums.items()} if n > 0 else {}
+    return {
+        'avg_score': avg_score, 'value_history': value_history,
+        'score_history': score_history, 'solucao_counts': solucao_counts, 'n': n
+    }
+
+
+def build_avg_table_display(table_data, avg_score, value_history):
+    colored, plain = {}, {}
+    for row in table_data:
+        name = row[0]
+        if name in avg_score:
+            v = avg_score[name]
+            colored[name] = f"{score_to_color(max(0.0, min(1.0, v)))} {v:.3f}"
+            plain[name] = f"{v:.3f}"
+        else:
+            vals = value_history.get(name, [])
+            numeric_vals = [x for x in vals if isinstance(x, (int, float)) and not isinstance(x, bool)]
+            if numeric_vals:
+                avgv = sum(numeric_vals) / len(numeric_vals)
+                colored[name] = f"{avgv:.2f}"
+                plain[name] = f"{avgv:.2f}"
+            else:
+                colored[name] = "-"
+                plain[name] = "-"
+    return colored, plain
+
+
+def save_eval_metrics(path, table_data, avg_plain, solucao_counts, n):
+    lines = [f"Total de labirintos avaliados: {n}", "", "Score Médio"]
+    for row in table_data:
+        name = row[0]
+        if name in avg_plain:
+            lines.append(f"{name}: {avg_plain[name]}")
+    lines += ["", "Contagem de Soluções"]
+    for cat in ["Ótima", "Correta", "Incorreta"]:
+        lines.append(f"{cat}: {solucao_counts.get(cat, 0)}")
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
 
 # General Classes
 
@@ -404,6 +538,104 @@ class UIMetricsTable:
                 text_rect = text_surf.get_rect(center=cell_rect.center)
                 screen.blit(text_surf, text_rect)
 
+class UIHistogram:
+    def __init__(self, x, y, width, height, title="", bins=10,
+                 bg_color="#1E1E1E", bar_color="#2A93CB", text_color="#FFFFFF",
+                 title_color="#FFFFFF", corner_radius=8):
+        self.raw_x = x
+        self.raw_y = y
+        self.raw_w = width
+        self.raw_h = height
+        self.title = title
+        self.bins = bins
+        self.bg_color = pygame.Color(bg_color)
+        self.bar_color = pygame.Color(bar_color)
+        self.text_color = pygame.Color(text_color)
+        self.title_color = pygame.Color(title_color)
+        self.corner_radius = corner_radius
+        self.values = []
+
+    def set_data(self, values):
+        self.values = [v for v in values if v is not None]
+
+    def get_rect(self, screen_w, screen_h):
+        return pygame.Rect(
+            parse_dim(self.raw_x, screen_w, screen_h),
+            parse_dim(self.raw_y, screen_w, screen_h),
+            parse_dim(self.raw_w, screen_w, screen_h),
+            parse_dim(self.raw_h, screen_w, screen_h)
+        )
+
+    def _is_numeric(self):
+        return len(self.values) > 0 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in self.values)
+
+    def draw(self, screen, font, title_font=None):
+        rect = self.get_rect(screen.get_width(), screen.get_height())
+        pygame.draw.rect(screen, self.bg_color, rect, border_radius=self.corner_radius)
+
+        title_font = title_font or font
+        content_top = rect.y + 8
+        if self.title:
+            title_surf = title_font.render(self.title, True, self.title_color)
+            screen.blit(title_surf, (rect.x + 10, content_top))
+            content_top += title_surf.get_height() + 6
+
+        plot_rect = pygame.Rect(rect.x + 10, content_top, rect.width - 20, max(0, rect.bottom - content_top - 8))
+        if not self.values:
+            msg = font.render("Sem dados", True, self.text_color)
+            screen.blit(msg, msg.get_rect(center=plot_rect.center))
+            return
+
+        if self._is_numeric():
+            self._draw_numeric(screen, font, plot_rect)
+        else:
+            self._draw_categorical(screen, font, plot_rect)
+
+    def _draw_numeric(self, screen, font, plot_rect):
+        label_h = font.get_height() + 4
+        bar_area = pygame.Rect(plot_rect.x, plot_rect.y, plot_rect.width, max(0, plot_rect.height - label_h))
+
+        vmin, vmax = min(self.values), max(self.values)
+        if vmin == vmax:
+            vmin -= 0.5
+            vmax += 0.5
+        bin_w = (vmax - vmin) / self.bins
+        counts = [0] * self.bins
+        for v in self.values:
+            idx = int((v - vmin) / bin_w) if bin_w > 0 else 0
+            idx = min(max(idx, 0), self.bins - 1)
+            counts[idx] += 1
+
+        max_count = max(counts) if counts else 1
+        bar_w = bar_area.width / self.bins
+        for i, c in enumerate(counts):
+            h = (c / max_count) * bar_area.height if max_count > 0 else 0
+            bar = pygame.Rect(int(bar_area.x + i * bar_w + 1), int(bar_area.bottom - h), max(1, int(bar_w - 2)), int(h))
+            pygame.draw.rect(screen, self.bar_color, bar, border_radius=3)
+
+        lbl_min = font.render(f"{vmin:.2f}", True, self.text_color)
+        lbl_max = font.render(f"{vmax:.2f}", True, self.text_color)
+        screen.blit(lbl_min, (plot_rect.x, plot_rect.bottom - lbl_min.get_height()))
+        screen.blit(lbl_max, (plot_rect.right - lbl_max.get_width(), plot_rect.bottom - lbl_max.get_height()))
+
+    def _draw_categorical(self, screen, font, plot_rect):
+        counts = {}
+        for v in self.values:
+            counts[v] = counts.get(v, 0) + 1
+        categories = sorted(counts.keys())
+        label_h = font.get_height() + 4
+        bar_area = pygame.Rect(plot_rect.x, plot_rect.y, plot_rect.width, max(0, plot_rect.height - label_h))
+
+        max_count = max(counts.values()) if counts else 1
+        bar_w = bar_area.width / max(1, len(categories))
+        for i, cat in enumerate(categories):
+            c = counts[cat]
+            h = (c / max_count) * bar_area.height if max_count > 0 else 0
+            bar = pygame.Rect(int(bar_area.x + i * bar_w + 4), int(bar_area.bottom - h), max(1, int(bar_w - 8)), int(h))
+            pygame.draw.rect(screen, self.bar_color, bar, border_radius=3)
+            lbl = font.render(f"{cat} ({c})", True, self.text_color)
+            screen.blit(lbl, lbl.get_rect(midtop=(bar.centerx, bar_area.bottom + 2)))
+
 # App Run Functions
 
 def process_events(screen: pygame.Surface):
@@ -438,40 +670,54 @@ def process_events(screen: pygame.Surface):
 
 def iteration(blocks, model, tokenizer, task_name, conf, device, display_data, event_info):
     if event_info.get("mouse_clicked"):
-        # Screen Buttons
         for btn in display_data.get("buttons", []):
             if btn.check_click(event_info):
                 display_data['current_screen'] = btn.id.replace('btn_screen_', '')
                 for b in display_data.get("buttons", []):
                     b.is_selected = (b.id == btn.id)
 
-        # Sample Screen
         if display_data['current_screen'] == 'sample':
             btns = display_data['screen_sample'].get("buttons", [])
-            
-            # Load Labyrinth Generation
+
             if btns[0].check_click(event_info):
                 display_data['screen_sample']['gen'] = load_next_labyrinth(blocks, tokenizer, task_name == 'directions', model, device, conf, display_data)
                 display_data['screen_sample']['loading'] = True
                 display_data['screen_sample']['progress'] = 0.0
-
                 display_data['screen_sample']['current_lab_id'] = 0
                 for i in range(1, 4): btns[i].is_selected = (i == 1)
 
-            # Swap Labyrinth State
             if btns[1].check_click(event_info):
                 display_data['screen_sample']['current_lab_id'] = 0
                 for i in range(1, 4): btns[i].is_selected = (i == 1)
-            
+
             if btns[2].check_click(event_info):
                 display_data['screen_sample']['current_lab_id'] = 1
                 for i in range(1, 4): btns[i].is_selected = (i == 2)
-            
+
             if btns[3].check_click(event_info):
                 display_data['screen_sample']['current_lab_id'] = 2
                 for i in range(1, 4): btns[i].is_selected = (i == 3)
 
-    # Generator Finished
+        elif display_data['current_screen'] == 'metrics':
+            sm = display_data['screen_metrics']
+            btns = sm.get("buttons", [])
+            max_metric = len(sm['table'].data) - 1
+
+            if not sm['loading'] and btns[0].check_click(event_info):
+                save_eval_metrics(sm['save_path'], sm['table'].data, sm.get('avg_plain', {}), sm.get('solucao_counts', {}), sm.get('n', 0))
+                sm['save_feedback'] = "Salvo em eval_metrics.txt"
+                sm['save_feedback_timer'] = 120
+
+            if btns[1].check_click(event_info):
+                sm['current_metric'] -= 1
+                if sm['current_metric'] < 0:
+                    sm['current_metric'] = max_metric
+
+            if btns[2].check_click(event_info):
+                sm['current_metric'] += 1
+                if sm['current_metric'] > max_metric:
+                    sm['current_metric'] = 0
+
     gen = display_data['screen_sample'].get('gen')
     if display_data['screen_sample'].get('loading') and gen is not None:
         try:
@@ -482,13 +728,10 @@ def iteration(blocks, model, tokenizer, task_name, conf, device, display_data, e
                     if matrices[0] is not None: display_data['screen_sample']['labyrinths'][0].update_from_labyrinth(matrices[0])
                     if matrices[1] is not None: display_data['screen_sample']['labyrinths'][1].update_from_labyrinth(matrices[1])
                     if matrices[2] is not None: display_data['screen_sample']['labyrinths'][2].update_from_labyrinth(matrices[2])
-
                 metrics = value.get('metrics', {})
-                table = display_data['screen_sample']['table']
-                for row in table.data:
+                for row in display_data['screen_sample']['table'].data:
                     if row[0] in metrics:
                         row[1] = metrics[row[0]]
-
                 display_data['screen_sample']['loading'] = False
                 display_data['screen_sample']['gen'] = None
             else:
@@ -496,6 +739,30 @@ def iteration(blocks, model, tokenizer, task_name, conf, device, display_data, e
         except StopIteration:
             display_data['screen_sample']['loading'] = False
             display_data['screen_sample']['gen'] = None
+
+    sm = display_data['screen_metrics']
+    sm_gen = sm.get('gen')
+    if sm.get('loading') and sm_gen is not None:
+        try:
+            progress = next(sm_gen)
+            sm['loading_bar'].set_progress(progress)
+        except StopIteration as e:
+            payload = e.value or {}
+            sm['avg_score'] = payload.get('avg_score', {})
+            sm['value_history'] = payload.get('value_history', {})
+            sm['score_history'] = payload.get('score_history', {})
+            sm['solucao_counts'] = payload.get('solucao_counts', {})
+            sm['n'] = payload.get('n', 0)
+            colored, plain = build_avg_table_display(sm['table'].data, sm['avg_score'], sm['value_history'])
+            sm['avg_plain'] = plain
+            for row in sm['table'].data:
+                if row[0] in colored:
+                    row[1] = colored[row[0]]
+            sm['loading'] = False
+            sm['gen'] = None
+
+    if display_data['screen_metrics'].get('save_feedback_timer', 0) > 0:
+        display_data['screen_metrics']['save_feedback_timer'] -= 1
 
     return display_data
 
@@ -515,13 +782,36 @@ def render(screen, fonts, display_data, model, task_name):
             matrix = display_data['screen_sample']['labyrinths'][display_data['screen_sample']['current_lab_id']]
             matrix.draw(screen, fonts[1], pygame.mouse.get_pos())
 
-        table = display_data['screen_sample']['table']
-        table.draw(screen, fonts[2])
+        display_data['screen_sample']['table'].draw(screen, fonts[2])
+
     elif display_data['current_screen'] == 'metrics':
-        xx = 0
+        sm = display_data['screen_metrics']
+        if sm['loading'] == True:
+            sm['loading_bar'].draw(screen, fonts[2])
+        else:
+            for btn in sm.get("buttons", []):
+                btn.draw(screen, fonts[2], pygame.mouse.get_pos())
+
+            sm['table'].draw(screen, fonts[2])
+
+            metric_name = sm['table'].data[sm['current_metric']][0]
+            sm['hist_values'].set_data(sm['value_history'].get(metric_name, []))
+            sm['hist_scores'].set_data(sm['score_history'].get(metric_name, []))
+            sm['hist_values'].draw(screen, fonts[3], fonts[2])
+            sm['hist_scores'].draw(screen, fonts[3], fonts[2])
+
+            label = fonts[1].render(f"{metric_name}", True, pygame.Color("#FFFFFF"))
+            screen.blit(label, (parse_dim('18vh', screen.get_width(), screen.get_height()),
+                                 parse_dim('11vh', screen.get_width(), screen.get_height())))
+
+            if sm.get('save_feedback_timer', 0) > 0:
+                fb = fonts[2].render(sm.get('save_feedback', ''), True, pygame.Color("#18D227"))
+                screen.blit(fb, (parse_dim('46.5vh', screen.get_width(), screen.get_height()),
+                                  parse_dim('16vh', screen.get_width(), screen.get_height())))
+
     elif display_data['current_screen'] == 'attention':
-        xx = 0
-            
+        pass
+
     pygame.display.flip()
 
 def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load_epoch: str = 'best', window_size: tuple = (-1, -1)):
@@ -561,7 +851,7 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
     if directions_task:
         table_data = [
             ["Corretude", ""],
-            ["Solução", ""],
+            ["Acurácia", ""],
             ["Edit Distance", ""],
             ["Tokens Ótimos", ""],
             ["Tokens Alterados", ""],
@@ -570,11 +860,12 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
             ["Distância Direta", ""],
             ["Paredes Violadas", ""],
         ]
-        table_h = "52vh"
+        table_h = "52.0vh"
+        table_lines = 9
     else:
         table_data = [
             ["Corretude", ""],
-            ["Solução", ""],
+            ["Acurácia", ""],
             ["Tokens Alterados", ""],
             ["Tokens Ótimos", ""],
             ["Tokens Diferentes", ""],
@@ -590,6 +881,7 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
             ["Caminho Conexo", ""],
         ]
         table_h = "86.5vh"
+        table_lines = 15    
 
     display_data = {
         "current_screen": 'sample',
@@ -689,8 +981,57 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
                 x="90vh", y="10vh",
                 width="80vh", height=table_h,
                 col_weights=[3,2],
-                row_weights=[1]*15,
+                row_weights=[1]*table_lines,
                 data=table_data,
+                cell_bg_color="#112230",
+                bg_color="#1E1E1E",
+                text_color="#FFFFFF",
+                border_size=1,
+                border_color="#000000",
+            )
+        },
+        "screen_metrics": {
+            "current_metric": 0,
+            "gen": None,
+            "loading": True,
+            "value_history": {},
+            "score_history": {},
+            "solucao_counts": {},
+            "avg_score": {},
+            "avg_plain": {},
+            "n": 0,
+            "save_feedback": "",
+            "save_feedback_timer": 0,
+            "save_path": os.path.join(os.path.dirname(run_id) or ".", "eval_metrics.txt"),
+            "loading_bar": UILoadingBar(
+                x="10vw", y="50vh",
+                width="80vw", height="6vh",
+                text="Gerando métricas",
+                text_color="#FFFFFF",
+                bg_color="#112230",
+                fill_color="#4FC302"
+            ),
+            "buttons": [
+                UIButton(id_name="btn_save_metrics", x="3vh", y="10vh", width="12vh", height="5vh", text="Salvar", text_color="#FFFFFF"),
+                UIButton(id_name="btn_prev_metric", x="54vh", y="10vh", width="14vh", height="5vh", text="Anterior", text_color="#FFFFFF"),
+                UIButton(id_name="btn_next_metric", x="70vh", y="10vh", width="14vh", height="5vh", text="Próxima", text_color="#FFFFFF"),
+            ],
+            "hist_values": UIHistogram(
+                x="3vh", y="18vh", width="80vh", height="39vh",
+                title="Distribuição dos Valores", bins=20,
+                bg_color="#1E1E1E", bar_color="#24DBEC", text_color="#FFFFFF", title_color="#FFFFFF"
+            ),
+            "hist_scores": UIHistogram(
+                x="3vh", y="59vh", width="80vh", height="39vh",
+                title="Distribuição dos Scores", bins=20,
+                bg_color="#1E1E1E", bar_color="#4FC302", text_color="#FFFFFF", title_color="#FFFFFF"
+            ),
+            "table": UIMetricsTable(
+                x="90vh", y="10vh",
+                width="80vh", height=table_h,
+                col_weights=[3,2],
+                row_weights=[1]*table_lines,
+                data=[row[:] for row in table_data],
                 cell_bg_color="#112230",
                 bg_color="#1E1E1E",
                 text_color="#FFFFFF",
@@ -699,6 +1040,9 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
             )
         }
     }
+    display_data['screen_metrics']['gen'] = compute_dataset_metrics_gen(
+        blocks, tokenizer, directions_task, model, device, conf
+    )
 
     # App Loop
     running = True
@@ -712,12 +1056,11 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
             render(screen, fonts, display_data, model, task_name)
     pygame.quit()
 
-#run_id="check/runsbetter/SimpleDecoderButBefore/1782357949889040700_epoch_20.pt",
 if __name__ == "__main__":
     evaluate(
         run_id="check/runsbetter/SimpleDecoderButBefore/1782357949889040700_epoch_20.pt",
         config="SimpleDecoder",
-        dataset="datasets/test/completion/Simple_example.txt",
+        dataset="datasets/test/completion/Simple_dataset.txt",
         directions_task=False,
         window_size=(1280,720)
     )
@@ -740,6 +1083,17 @@ if __name__ == "__main__":
     evaluate(
         run_id="check/runsbetter/SimpleDecoderButBefore/1782357949889040700_epoch_20.pt",
         config="SimpleDecoder",
+        dataset="datasets/test/completion/Simple_example.txt",
+        directions_task=False,
+        window_size=(1280,720)
+    )
+'''
+
+'''
+if __name__ == "__main__":
+    evaluate(
+        run_id="runs/SimpleDencoder/completion/Testy/best_model.pt",
+        config="SimpleDencoder",
         dataset="datasets/test/completion/Simple_example.txt",
         directions_task=False,
         window_size=(1280,720)

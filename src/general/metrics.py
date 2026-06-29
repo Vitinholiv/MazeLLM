@@ -214,15 +214,15 @@ def calculate_metrics(input_matrix, solv_matrix, pred_matrix, lab_size):
     pred_visited, pred_landing = walk_chain_forward(pred_grid, pred_first, lab_size, max_steps) if pred_first else ([], None)
     pred_dirs = [pred_grid[p[0]][p[1]] for p in pred_visited]
 
-    # Corretude / Solução
+    # Acurácia
     all_free = all(input_grid[p[0]][p[1]] != '#' for p in pred_visited)
     is_correct = (not start_violated and not end_violated and pred_first is not None
                   and pred_landing == e_pred_pos and all_free)
     if is_correct:
         is_otima = (pred_dirs == gt_dirs) or (len(pred_dirs) == len(gt_dirs))
-        results['Solução'] = "Ótima" if is_otima else "Correta"
+        results['Acurácia'] = "Ótima" if is_otima else "Correta"
     else:
-        results['Solução'] = "Incorreta"
+        results['Acurácia'] = "Incorreta"
 
     # Tokens Alterados / Ótimos / Diferentes
     def hamming(a, b):
@@ -304,7 +304,7 @@ def calculate_metrics(input_matrix, solv_matrix, pred_matrix, lab_size):
     results['Caminho Conexo'] = "Sim" if (forward_set == all_dir_positions or backward_set == all_dir_positions) else "Não"
 
     score = {
-        'Solução': 1.0 if results['Solução'] == 'Ótima' else 0.8 if results['Solução'] == 'Correta' else 0.0,
+        'Acurácia': 1.0 if results['Acurácia'] == 'Ótima' else 1.0 if results['Acurácia'] == 'Correta' else 0.0,
         'Tokens Diferentes': 1.0 - min(abs(results['Tokens Diferentes'] / results["Tokens Ótimos"]), 1.0),
         'Progresso Direto': results['Progresso Direto'] / (results['Tokens Ótimos'] + 1),
         'Progresso Inverso': results['Progresso Inverso'] / (results['Tokens Ótimos'] + 1),
@@ -319,7 +319,7 @@ def calculate_metrics(input_matrix, solv_matrix, pred_matrix, lab_size):
     }
 
     results['Corretude'] = (
-        1.0 * score['Solução'] +
+        1.0 * score['Acurácia'] +
         0.6 * score['Tokens Diferentes'] +
         0.3 * score['Progresso Direto'] +
         0.2 * score['Progresso Inverso'] +
@@ -361,9 +361,9 @@ def calculate_direction_metrics(input_matrix, solv_directions, pred_directions, 
                   and pred_landing == e_pred_pos and all_free)
     if is_correct:
         is_otima = (pred_chain_dirs == gt_chain_dirs) or (len(pred_chain_dirs) == len(gt_chain_dirs))
-        results['Solução'] = "Ótima" if is_otima else "Correta"
+        results['Acurácia'] = "Ótima" if is_otima else "Correta"
     else:
-        results['Solução'] = "Incorreta"
+        results['Acurácia'] = "Incorreta"
 
     results['Edit Distance'] = edit_distance(list(solv_directions), list(pred_directions))
 
@@ -407,10 +407,10 @@ def calculate_direction_metrics(input_matrix, solv_directions, pred_directions, 
     results['Paredes Violadas'] = paredes_violadas
 
     score = {
-        'Solução': 1.0 if results['Solução'] == 'Ótima' else 0.8 if results['Solução'] == 'Correta' else 0.0,
+        'Acurácia': 1.0 if results['Acurácia'] == 'Ótima' else 0.8 if results['Acurácia'] == 'Correta' else 0.0,
         'Edit Distance': 1.0 - min(results['Edit Distance'] / max(results['Tokens Ótimos'], 1), 1.0),
         'Tokens Diferentes': 1.0 - min(results['Tokens Diferentes'] / max(results['Tokens Ótimos'], 1), 1.0),
-        'Progresso Direto': results['Progresso Direto'] / (results['Tokens Ótimos'] + 1),
+        'Progresso Direto': results['Progresso Direto'] / (results['Tokens Ótimos']),
         'Distância Direta': (1 / (results['Distância Direta'] + 1)) ** 0.5,
         'Paredes Violadas': 1 / (results['Paredes Violadas'] + 1),
     }
