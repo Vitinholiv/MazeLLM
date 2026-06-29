@@ -1,4 +1,5 @@
 import os
+import json
 import torch
 import pygame
 from typing import Union
@@ -272,18 +273,17 @@ def build_avg_table_display(table_data, avg_score, value_history):
     return colored, plain
 
 
-def save_eval_metrics(path, table_data, avg_plain, solucao_counts, n):
-    lines = [f"Total de labirintos avaliados: {n}", "", "Score Médio"]
-    for row in table_data:
-        name = row[0]
-        if name in avg_plain:
-            lines.append(f"{name}: {avg_plain[name]}")
-    lines += ["", "Contagem de Soluções"]
-    for cat in ["Ótima", "Correta", "Incorreta"]:
-        lines.append(f"{cat}: {solucao_counts.get(cat, 0)}")
+def save_eval_metrics(path, table_data, avg_plain, solucao_counts, n, value_history, score_history):
+    data = {
+        "n": n,
+        "avg_plain": avg_plain,
+        "solucao_counts": solucao_counts,
+        "value_history": value_history,
+        "score_history": score_history
+    }
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 # General Classes
 
@@ -703,17 +703,16 @@ def iteration(blocks, model, tokenizer, task_name, conf, device, display_data, e
             btns = sm.get("buttons", [])
             max_metric = len(sm['table'].data) - 1
 
-            if not sm['loading'] and btns[0].check_click(event_info):
-                save_eval_metrics(sm['save_path'], sm['table'].data, sm.get('avg_plain', {}), sm.get('solucao_counts', {}), sm.get('n', 0))
-                sm['save_feedback'] = "Salvo em eval_metrics.txt"
-                sm['save_feedback_timer'] = 120
+            if not sm['loading'] and not sm['saved']:
+                save_eval_metrics(sm['save_path'], sm['table'].data, sm.get('avg_plain', {}), sm.get('solucao_counts', {}), sm.get('n', 0), sm.get('value_history', {}), sm.get('score_history', {}))
+                sm['saved'] = True
 
-            if btns[1].check_click(event_info):
+            if btns[0].check_click(event_info):
                 sm['current_metric'] -= 1
                 if sm['current_metric'] < 0:
                     sm['current_metric'] = max_metric
 
-            if btns[2].check_click(event_info):
+            if btns[1].check_click(event_info):
                 sm['current_metric'] += 1
                 if sm['current_metric'] > max_metric:
                     sm['current_metric'] = 0
@@ -761,9 +760,6 @@ def iteration(blocks, model, tokenizer, task_name, conf, device, display_data, e
             sm['loading'] = False
             sm['gen'] = None
 
-    if display_data['screen_metrics'].get('save_feedback_timer', 0) > 0:
-        display_data['screen_metrics']['save_feedback_timer'] -= 1
-
     return display_data
 
 def render(screen, fonts, display_data, model, task_name):
@@ -801,13 +797,8 @@ def render(screen, fonts, display_data, model, task_name):
             sm['hist_scores'].draw(screen, fonts[3], fonts[2])
 
             label = fonts[1].render(f"{metric_name}", True, pygame.Color("#FFFFFF"))
-            screen.blit(label, (parse_dim('18vh', screen.get_width(), screen.get_height()),
+            screen.blit(label, (parse_dim('4vh', screen.get_width(), screen.get_height()),
                                  parse_dim('11vh', screen.get_width(), screen.get_height())))
-
-            if sm.get('save_feedback_timer', 0) > 0:
-                fb = fonts[2].render(sm.get('save_feedback', ''), True, pygame.Color("#18D227"))
-                screen.blit(fb, (parse_dim('46.5vh', screen.get_width(), screen.get_height()),
-                                  parse_dim('16vh', screen.get_width(), screen.get_height())))
 
     elif display_data['current_screen'] == 'attention':
         pass
@@ -820,6 +811,7 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
     tokenizer, model, device = init(config, directions_task)
     conf = ModelConfigs.get(config)
     task_name = 'directions' if directions_task else 'completion'
+    dataset_name = os.path.splitext(os.path.basename(dataset))[0]
     
     # Get Model
     model_path = run_id
@@ -1000,9 +992,8 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
             "avg_score": {},
             "avg_plain": {},
             "n": 0,
-            "save_feedback": "",
-            "save_feedback_timer": 0,
-            "save_path": os.path.join(os.path.dirname(run_id) or ".", "eval_metrics.txt"),
+            "saved": False,
+            "save_path": os.path.join(os.path.dirname(run_id) or ".", f"eval_metrics_{dataset_name}.json"),
             "loading_bar": UILoadingBar(
                 x="10vw", y="50vh",
                 width="80vw", height="6vh",
@@ -1012,7 +1003,6 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
                 fill_color="#4FC302"
             ),
             "buttons": [
-                UIButton(id_name="btn_save_metrics", x="3vh", y="10vh", width="12vh", height="5vh", text="Salvar", text_color="#FFFFFF"),
                 UIButton(id_name="btn_prev_metric", x="54vh", y="10vh", width="14vh", height="5vh", text="Anterior", text_color="#FFFFFF"),
                 UIButton(id_name="btn_next_metric", x="70vh", y="10vh", width="14vh", height="5vh", text="Próxima", text_color="#FFFFFF"),
             ],
@@ -1040,9 +1030,31 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
             )
         }
     }
-    display_data['screen_metrics']['gen'] = compute_dataset_metrics_gen(
-        blocks, tokenizer, directions_task, model, device, conf
-    )
+    sm = display_data['screen_metrics']
+    if os.path.exists(sm['save_path']):
+        try:
+            with open(sm['save_path'], "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            sm['n'] = saved.get('n', 0)
+            sm['avg_plain'] = saved.get('avg_plain', {})
+            sm['solucao_counts'] = saved.get('solucao_counts', {})
+            sm['value_history'] = saved.get('value_history', {})
+            sm['score_history'] = saved.get('score_history', {})
+            sm['avg_score'] = {k: float(v) for k, v in sm['avg_plain'].items() if v != "-"}
+            
+            colored, plain = build_avg_table_display(sm['table'].data, sm['avg_score'], sm['value_history'])
+            sm['avg_plain'] = plain
+            for row in sm['table'].data:
+                if row[0] in colored:
+                    row[1] = colored[row[0]]
+            
+            sm['saved'] = True
+            sm['loading'] = False
+            sm['gen'] = None
+        except Exception:
+            sm['gen'] = compute_dataset_metrics_gen(blocks, tokenizer, directions_task, model, device, conf)
+    else:
+        sm['gen'] = compute_dataset_metrics_gen(blocks, tokenizer, directions_task, model, device, conf)
 
     # App Loop
     running = True
@@ -1060,7 +1072,7 @@ if __name__ == "__main__":
     evaluate(
         run_id="check/runsbetter/SimpleDecoderButBefore/1782357949889040700_epoch_20.pt",
         config="SimpleDecoder",
-        dataset="datasets/test/completion/Simple_dataset.txt",
+        dataset="datasets/test/completion/lol.txt",
         directions_task=False,
         window_size=(1280,720)
     )
