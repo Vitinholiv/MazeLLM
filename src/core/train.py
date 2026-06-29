@@ -105,6 +105,7 @@ def train(run_id: str, config: str, dataset: str, directions_task: bool, batch_s
 
             loss = criterion(logits.view(-1, conf["vocab_size"]), targets.view(-1))
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             total_loss += loss.item()
@@ -145,7 +146,7 @@ def train(run_id: str, config: str, dataset: str, directions_task: bool, batch_s
 
 if __name__ == "__main__":
     train(
-        'Testy',
+        'CompletionDencoder',
         'SimpleDencoder',
         'datasets/train/completion/Simple_dataset.txt',
         False,
