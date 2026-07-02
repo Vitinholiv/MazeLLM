@@ -581,7 +581,7 @@ void generate_dataset_file(map<string, double> gen_probs = {}){
 #ifdef TESTSETUP
 int main(){
     SEED = 15813;
-    NUM_MAZES_TO_GENERATE = 10000;
+    NUM_MAZES_TO_GENERATE = 1000;
     LAB_MIN_WIDTH = 10 * 1; LAB_MAX_WIDTH = 10 * 1;
     LAB_MIN_HEIGHT = 10 * 1; LAB_MAX_HEIGHT = 10 * 1;
     PADDING_TO_W = 10 * 1; PADDING_TO_H = 10 * 1;

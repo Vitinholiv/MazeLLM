@@ -228,7 +228,7 @@ def compute_dataset_metrics_gen(blocks, tokenizer, directions_task, model, devic
         try:
             while True:
                 inner_progress = next(gen)
-                yield (b_idx + inner_progress) / total
+                yield ((b_idx + inner_progress) / total, b_idx, total)
         except StopIteration as e:
             if e.value is not None:
                 results, score = e.value
@@ -243,7 +243,7 @@ def compute_dataset_metrics_gen(blocks, tokenizer, directions_task, model, devic
                 solucao_counts[results['Acurácia']] = solucao_counts.get(results['Acurácia'], 0) + 1
             n += 1
 
-        yield (b_idx + 1) / total
+        yield ((b_idx + 1) / total, b_idx + 1, total)
 
     avg_score = {k: total_v / n for k, total_v in score_sums.items()} if n > 0 else {}
     return {
@@ -392,7 +392,8 @@ def save_eval_metrics(path, table_data, avg_plain, solucao_counts, n, value_hist
 # General Classes
 
 class UILoadingBar:
-    def __init__(self, x, y, width, height, text: str = "Carregando...", text_color: str = "#FFFFFF", bg_color: str = "#223344", fill_color: str = "#2A93CB"):
+    def __init__(self, x, y, width, height, text: str = "Carregando...", text_color: str = "#FFFFFF", bg_color: str = "#223344", fill_color: str = "#2A93CB", show_time=False):
+        import time
         self.raw_x = x
         self.raw_y = y
         self.raw_w = width
@@ -402,9 +403,36 @@ class UILoadingBar:
         self.bg_color = pygame.Color(bg_color)
         self.fill_color = pygame.Color(fill_color)
         self.progress = 0.0
+        self.show_time = show_time
+        self.time_text = ""
+        
+        self.avg_time_per_lab = 0.0
+        self.last_lab_time = time.time()
+        self.last_str_update = time.time()
 
-    def set_progress(self, value: float):
+    def set_progress(self, value: float, current_lab: int, total_labs: int):
+        import time
         self.progress = max(0.0, min(1.0, value))
+        
+        if self.show_time and current_lab is not None and total_labs is not None:
+            now = time.time()
+            if current_lab > getattr(self, '_last_lab', -1):
+                if current_lab > 0:
+                    lab_duration = now - self.last_lab_time
+                    self.avg_time_per_lab = self.avg_time_per_lab * ((current_lab - 1) / current_lab) + lab_duration / current_lab
+                self.last_lab_time = now
+                self._last_lab = current_lab
+
+            if now - self.last_str_update > 2.0 and current_lab >= 5:
+                rem_labs = total_labs - current_lab
+                rem_sec = int(rem_labs * self.avg_time_per_lab)
+                h = rem_sec // 3600
+                m = (rem_sec % 3600) // 60
+                s = rem_sec % 60
+                self.time_text = f"({current_lab}/{total_labs})  -  Tempo Restante Estimado: {h} h {m} min {s} sec"
+                self.last_str_update = now
+            elif self.time_text == "" or current_lab < 5:
+                self.time_text = f"({current_lab}/{total_labs})  -  Calculando..."
 
     def get_rect(self, screen_w: int, screen_h: int) -> pygame.Rect:
         x = parse_dim(self.raw_x, screen_w, screen_h)
@@ -426,6 +454,11 @@ class UILoadingBar:
         text_surf = font.render(label, True, self.text_color)
         text_rect = text_surf.get_rect(center=rect.center)
         screen.blit(text_surf, text_rect)
+        
+        if self.show_time and self.time_text:
+            time_surf = font.render(self.time_text, True, self.text_color)
+            time_rect = time_surf.get_rect(midtop=(rect.centerx, rect.bottom + 10))
+            screen.blit(time_surf, time_rect)
 
 class UIButton:
     def __init__(self, id_name: str, x, y, width, height, text: str, text_color: str, bg_color: str = "#223344", active_color: str = "#2A93CB"):
@@ -1039,7 +1072,7 @@ def iteration(blocks, model, tokenizer, task_name, conf, device, display_data, e
                 display_data['screen_sample']['loading'] = False
                 display_data['screen_sample']['gen'] = None
             else:
-                display_data['screen_sample']['loading_bar'].set_progress(value)
+                display_data['screen_sample']['loading_bar'].set_progress(value, None, None)
         except StopIteration:
             display_data['screen_sample']['loading'] = False
             display_data['screen_sample']['gen'] = None
@@ -1048,8 +1081,12 @@ def iteration(blocks, model, tokenizer, task_name, conf, device, display_data, e
     sm_gen = sm.get('gen')
     if sm.get('loading') and sm_gen is not None:
         try:
-            progress = next(sm_gen)
-            sm['loading_bar'].set_progress(progress)
+            payload = next(sm_gen)
+            if isinstance(payload, tuple) and len(payload) == 3:
+                progress, current_lab, total_labs = payload
+                sm['loading_bar'].set_progress(progress, current_lab, total_labs)
+            else:
+                sm['loading_bar'].set_progress(payload)
         except StopIteration as e:
             payload = e.value or {}
             sm['avg_score'] = payload.get('avg_score', {})
@@ -1069,7 +1106,7 @@ def iteration(blocks, model, tokenizer, task_name, conf, device, display_data, e
     if sa['loading'] and sa['gen'] is not None:
         try:
             progress = next(sa['gen'])
-            sa['loading_bar'].set_progress(progress)
+            sa['loading_bar'].set_progress(progress, None, None)
         except StopIteration as e:
             payload = e.value
             sa['payload'] = payload
@@ -1388,7 +1425,8 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
                 text="Gerando métricas",
                 text_color="#FFFFFF",
                 bg_color="#112230",
-                fill_color="#4FC302"
+                fill_color="#4FC302",
+                show_time=True
             ),
             "buttons": [
                 UIButton(id_name="btn_prev_metric", x="54vh", y="10vh", width="14vh", height="5vh", text="Anterior", text_color="#FFFFFF"),
