@@ -10,17 +10,19 @@
 #include <map>
 using namespace std;
 namespace fs = std::filesystem;
+#define NOTHING 1
+#define TESTSETUP
 
 //-------------------- Parameters --------------------
 
-int NUM_MAZES_TO_GENERATE = 100000;
-string DATA_TYPE = "TRAIN"; // TRAIN | TEST
-string OUTPUT_FILENAME = "example.txt";
-int SEED = 420;
+int NUM_MAZES_TO_GENERATE = 1000; // 100000 was used for Train, 1000 was used for Test
+string DATA_TYPE = "TEST"; // TRAIN | TEST
+string OUTPUT_FILENAME = "dataset.txt";
+int SEED = 15813; // 420 was used for Train, 15813 was used for Test
 
-int LAB_MIN_WIDTH = 10, LAB_MAX_WIDTH = 10;
-int LAB_MIN_HEIGHT = 10, LAB_MAX_HEIGHT = 10;
-int PADDING_TO_W = 10, PADDING_TO_H = 10;
+int LAB_MIN_WIDTH = 10 * NOTHING, LAB_MAX_WIDTH = 10 * NOTHING;
+int LAB_MIN_HEIGHT = 10 * NOTHING, LAB_MAX_HEIGHT = 10 * NOTHING;
+int PADDING_TO_W = 10 * NOTHING, PADDING_TO_H = 10 * NOTHING;
 string PADDING_TYPE = "evenly"; // evenly | random | start | end | none
 
 string START_IN_POS = "random"; // random | start | end | top | bottom | left | right 
@@ -32,10 +34,10 @@ string OUTPUT_TO_FORMAT = "completion"; // directions | completion
 int MIN_SOLUTION_LENGTH = 25;
 
 map<string, double> CHOSEN_DISTRIBUTION = {
-    {"dfs", 0.50},
-    {"wilson", 0.20},
+    {"dfs", 0.5},
+    {"wilson", 0.2},
     {"percolation", 0.0}, 
-    {"percolation_dfs", 0.30}
+    {"percolation_dfs", 0.3}
 };
 
 //-------------------- Definitions --------------------
@@ -576,8 +578,121 @@ void generate_dataset_file(map<string, double> gen_probs = {}){
 }
 
 //---------------------- Execution ----------------------
+#ifdef TESTSETUP
+int main(){
+    SEED = 15813;
+    NUM_MAZES_TO_GENERATE = 10000;
+    LAB_MIN_WIDTH = 10 * 1; LAB_MAX_WIDTH = 10 * 1;
+    LAB_MIN_HEIGHT = 10 * 1; LAB_MAX_HEIGHT = 10 * 1;
+    PADDING_TO_W = 10 * 1; PADDING_TO_H = 10 * 1;
+    PADDING_TYPE = "evenly";
+    START_IN_POS = "random";
+    END_IN_POS = "random";
+    LABYRINTH_TOKENS = "individual";
+    MIN_SOLUTION_LENGTH = 25;
+    DATA_TYPE = "TEST";
 
+    OUTPUT_FILENAME = "dataset_21.txt";
+    OUTPUT_TO_FORMAT = "completion";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+    OUTPUT_TO_FORMAT = "directions";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+    
+    OUTPUT_FILENAME = "dataset_25.txt";
+    LAB_MIN_HEIGHT += 2; LAB_MAX_HEIGHT += 2;
+    LAB_MIN_WIDTH += 2; LAB_MAX_WIDTH += 2;
+    PADDING_TO_H += 2; PADDING_TO_W += 2;
+    MIN_SOLUTION_LENGTH = 30;
+    OUTPUT_TO_FORMAT = "completion";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+    OUTPUT_TO_FORMAT = "directions";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+
+    OUTPUT_FILENAME = "dataset_29.txt";
+    LAB_MIN_HEIGHT += 2; LAB_MAX_HEIGHT += 2;
+    LAB_MIN_WIDTH += 2; LAB_MAX_WIDTH += 2;
+    PADDING_TO_H += 2; PADDING_TO_W += 2;
+    MIN_SOLUTION_LENGTH = 36;
+    OUTPUT_TO_FORMAT = "completion";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+    OUTPUT_TO_FORMAT = "directions";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+
+    OUTPUT_FILENAME = "dataset_33.txt";
+    LAB_MIN_HEIGHT += 2; LAB_MAX_HEIGHT += 2;
+    LAB_MIN_WIDTH += 2; LAB_MAX_WIDTH += 2;
+    PADDING_TO_H += 2; PADDING_TO_W += 2;
+    MIN_SOLUTION_LENGTH = 44;
+    OUTPUT_TO_FORMAT = "completion";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+    OUTPUT_TO_FORMAT = "directions";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+
+    OUTPUT_FILENAME = "dataset_37.txt";
+    LAB_MIN_HEIGHT += 2; LAB_MAX_HEIGHT += 2;
+    LAB_MIN_WIDTH += 2; LAB_MAX_WIDTH += 2;
+    PADDING_TO_H += 2; PADDING_TO_W += 2;
+    MIN_SOLUTION_LENGTH = 55;
+    OUTPUT_TO_FORMAT = "completion";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+    OUTPUT_TO_FORMAT = "directions";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+
+    LAB_MIN_WIDTH = 4 * 1; LAB_MAX_WIDTH = 10 * 1;
+    LAB_MIN_HEIGHT = 4 * 1; LAB_MAX_HEIGHT = 10 * 1;
+    PADDING_TO_W = 10 * 1; PADDING_TO_H = 10 * 1;
+    MIN_SOLUTION_LENGTH = 18;
+    OUTPUT_FILENAME = "dataset_9_to_21.txt";
+    OUTPUT_TO_FORMAT = "completion";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+    OUTPUT_TO_FORMAT = "directions";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+
+    LAB_MIN_WIDTH = 10 * 1; LAB_MAX_WIDTH = 10 * 1;
+    LAB_MIN_HEIGHT = 10 * 1; LAB_MAX_HEIGHT = 10 * 1;
+    PADDING_TO_W = 10 * 1; PADDING_TO_H = 10 * 1;
+
+    CHOSEN_DISTRIBUTION = {
+        {"dfs", 1.0},
+        {"wilson", 0.0},
+        {"percolation", 0.0}, 
+        {"percolation_dfs", 0.0}
+    };
+    OUTPUT_FILENAME = "dfs_21.txt";
+    OUTPUT_TO_FORMAT = "completion";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+    OUTPUT_TO_FORMAT = "directions";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+
+    CHOSEN_DISTRIBUTION = {
+        {"dfs", 0.0},
+        {"wilson", 1.0},
+        {"percolation", 0.0}, 
+        {"percolation_dfs", 0.0}
+    };
+    OUTPUT_FILENAME = "wilson_21.txt";
+    OUTPUT_TO_FORMAT = "completion";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+    OUTPUT_TO_FORMAT = "directions";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+
+    CHOSEN_DISTRIBUTION = {
+        {"dfs", 0.0},
+        {"wilson", 0.0},
+        {"percolation", 0.0}, 
+        {"percolation_dfs", 1.0}
+    };
+    OUTPUT_FILENAME = "percolation_dfs_21.txt";
+    OUTPUT_TO_FORMAT = "completion";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+    OUTPUT_TO_FORMAT = "directions";
+    generate_dataset_file(CHOSEN_DISTRIBUTION);
+
+    return 0;
+}
+#else
 int main(){
     generate_dataset_file(CHOSEN_DISTRIBUTION);
     return 0;
 }
+#endif
