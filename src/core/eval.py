@@ -473,6 +473,11 @@ class ScreenMatrix:
         self.font = font
         self.grid = [[{"char": "#", "score": 0.0} for _ in range(k)] for _ in range(k)]
         self.cell_padding = 2
+        self.highlight_pos = None
+        self.highlight_color = pygame.Color("#24DBEC")
+
+    def set_highlight(self, pos):
+        self.highlight_pos = pos
 
     def update_from_labyrinth(self, maze_data: list):
         for r in range(self.k):
@@ -527,12 +532,14 @@ class ScreenMatrix:
 
                 if cell["score"] > 0:
                     overlay = pygame.Surface((cell_w, cell_h), pygame.SRCALPHA)
-                    overlay.fill((255, 255, 0, int(cell["score"] * 150)))
+                    overlay.fill((42, 147, 203, int(cell["score"] * 150)))
                     screen.blit(overlay, (x, y))
                 if char:
                     draw_font = self.font if self.font else font
                     text_surf = draw_font.render(char, True, fg)
                     screen.blit(text_surf, text_surf.get_rect(center=(x + cell_w//2, y + cell_h//2)))
+                if self.highlight_pos == (r, c):
+                    pygame.draw.rect(screen, self.highlight_color, (x + self.cell_padding, y + self.cell_padding, cell_w - wall_padding, cell_h - wall_padding), 2)
 
     def set_scores(self, score_grid):
         for r in range(self.k):
@@ -682,7 +689,7 @@ class UIHistogram:
     def _is_numeric(self):
         return len(self.values) > 0 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in self.values)
 
-    def draw(self, screen, font, title_font=None):
+    def draw(self, screen, font, title_font=None, show_grid=False):
         rect = self.get_rect(screen.get_width(), screen.get_height())
         pygame.draw.rect(screen, self.bg_color, rect, border_radius=self.corner_radius)
 
@@ -700,13 +707,13 @@ class UIHistogram:
             return
 
         if self._is_numeric():
-            self._draw_numeric(screen, font, plot_rect)
+            self._draw_numeric(screen, font, plot_rect, show_grid)
         else:
-            self._draw_categorical(screen, font, plot_rect)
+            self._draw_categorical(screen, font, plot_rect, show_grid)
 
-    def _draw_numeric(self, screen, font, plot_rect):
+    def _draw_numeric(self, screen, font, plot_rect, show_grid=False):
         label_h = font.get_height() + 4
-        y_lbl_w = font.size(str(len(self.values)))[0] + 6
+        y_lbl_w = font.size("1000")[0] + 6
         bar_area = pygame.Rect(plot_rect.x + y_lbl_w, plot_rect.y,
                                 max(1, plot_rect.width - y_lbl_w), max(0, plot_rect.height - label_h))
 
@@ -723,6 +730,16 @@ class UIHistogram:
 
         max_count = max(counts) if counts else 1
         bar_w = bar_area.width / self.bins
+
+        if show_grid:
+            grid_color = self.bg_color.lerp(pygame.Color("white"), 0.08)
+            for i in range(self.n_ticks):
+                t = i / max(1, self.n_ticks - 1)
+                yp = bar_area.bottom - int(t * bar_area.height)
+                pygame.draw.line(screen, grid_color, (bar_area.x, yp), (bar_area.right, yp), 1)
+                xp = bar_area.x + int(t * bar_area.width)
+                pygame.draw.line(screen, grid_color, (xp, bar_area.y), (xp, bar_area.bottom), 1)
+
         for i, c in enumerate(counts):
             h = (c / max_count) * bar_area.height if max_count > 0 else 0
             bar = pygame.Rect(int(bar_area.x + i * bar_w + 1), int(bar_area.bottom - h),
@@ -746,7 +763,7 @@ class UIHistogram:
             yp = bar_area.bottom - int(t * bar_area.height) - lbl.get_height() // 2
             screen.blit(lbl, (plot_rect.x, yp))
 
-    def _draw_categorical(self, screen, font, plot_rect):
+    def _draw_categorical(self, screen, font, plot_rect, show_grid=False):
         counts = {}
         for v in self.values:
             counts[v] = counts.get(v, 0) + 1
@@ -754,12 +771,23 @@ class UIHistogram:
         if not categories:
             return
         label_h = font.get_height() + 4
-        y_lbl_w = font.size(str(max(counts.values())))[0] + 6
+        y_lbl_w = font.size("1000")[0] + 6
         bar_area = pygame.Rect(plot_rect.x + y_lbl_w, plot_rect.y,
                                 max(1, plot_rect.width - y_lbl_w), max(0, plot_rect.height - label_h))
 
         max_count = max(counts.values())
         bar_w = bar_area.width / max(1, len(categories))
+
+        if show_grid:
+            grid_color = self.bg_color.lerp(pygame.Color("white"), 0.08)
+            for i in range(self.n_ticks):
+                t = i / max(1, self.n_ticks - 1)
+                yp = bar_area.bottom - int(t * bar_area.height)
+                pygame.draw.line(screen, grid_color, (bar_area.x, yp), (bar_area.right, yp), 1)
+            for i in range(len(categories)):
+                xp = bar_area.x + i * bar_w + bar_w / 2
+                pygame.draw.line(screen, grid_color, (xp, bar_area.y), (xp, bar_area.bottom), 1)
+
         for i, cat in enumerate(categories):
             c = counts[cat]
             h = (c / max_count) * bar_area.height if max_count > 0 else 0
@@ -780,8 +808,8 @@ class UIHistogram:
 
 class UITokenGrid:
     def __init__(self, x, y, width, height, rows, cols, title="",
-                 bg_color="#161616", dark_color="#0A0A0A", heat_color="#FFD000",
-                 text_color="#FFFFFF", title_color="#FFFFFF", highlight_color="#FFFFFF",
+                 bg_color="#161616", dark_color="#0A0A0A", heat_color="#2A93CB",
+                 text_color="#FFFFFF", title_color="#FFFFFF", highlight_color="#24DBEC",
                  corner_radius=8, cell_padding=2):
         self.raw_x, self.raw_y, self.raw_w, self.raw_h = x, y, width, height
         self.rows, self.cols = rows, cols
@@ -897,7 +925,8 @@ def process_events(screen: pygame.Surface):
         "mouse_clicked": False,
         "mouse_pos": pygame.mouse.get_pos(),
         "screen_w": screen.get_width(),
-        "screen_h": screen.get_height()
+        "screen_h": screen.get_height(),
+        "key_pressed": None
     }
     
     for event in pygame.event.get():
@@ -906,6 +935,10 @@ def process_events(screen: pygame.Surface):
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 running = False
+            elif event.key in [pygame.K_a, pygame.K_LEFT]:
+                event_info["key_pressed"] = "left"
+            elif event.key in [pygame.K_d, pygame.K_RIGHT]:
+                event_info["key_pressed"] = "right"
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
                 event_info["mouse_clicked"] = True
@@ -1055,6 +1088,14 @@ def iteration(blocks, model, tokenizer, task_name, conf, device, display_data, e
         sa['step_slider'].update(sw, sh, mouse_pos, mouse_down)
         sa['head_slider'].update(sw, sh, mouse_pos, mouse_down)
 
+        if event_info.get("key_pressed") and not sa['step_slider'].dragging:
+            if event_info["key_pressed"] == "left":
+                sa['step_slider'].value = max(sa['step_slider'].min_value, sa['step_slider'].value - 1)
+            elif event_info["key_pressed"] == "right":
+                sa['step_slider'].value = min(sa['step_slider'].max_value, sa['step_slider'].value + 1)
+
+    return display_data
+
     return display_data
 
 def render(screen, fonts, display_data, tokenizer):
@@ -1088,8 +1129,8 @@ def render(screen, fonts, display_data, tokenizer):
             metric_name = sm['table'].data[sm['current_metric']][0]
             sm['hist_values'].set_data(sm['value_history'].get(metric_name, []))
             sm['hist_scores'].set_data(sm['score_history'].get(metric_name, []))
-            sm['hist_values'].draw(screen, fonts[3], fonts[2])
-            sm['hist_scores'].draw(screen, fonts[3], fonts[2])
+            sm['hist_values'].draw(screen, fonts[3], fonts[2], show_grid=True)
+            sm['hist_scores'].draw(screen, fonts[3], fonts[2], show_grid=True)
 
             label = fonts[1].render(f"{metric_name}", True, pygame.Color("#FFFFFF"))
             screen.blit(label, (parse_dim('4vh', screen.get_width(), screen.get_height()),
@@ -1113,15 +1154,24 @@ def render(screen, fonts, display_data, tokenizer):
             norm = lambda v: v / max_val
 
             lab_size = payload['lab_size']
+            
+            if step_idx < lab_size * lab_size:
+                hl_pos = (step_idx // lab_size, step_idx % lab_size)
+                hl_special = None
+            else:
+                hl_pos = None
+                hl_special = 3
+                
             score_grid = [[norm(maze_vals[r * lab_size + c]) for c in range(lab_size)] for r in range(lab_size)]
             sa['maze_matrix'].set_scores(score_grid)
+            sa['maze_matrix'].set_highlight(hl_pos)
             sa['maze_matrix'].draw(screen, fonts[1], pygame.mouse.get_pos())
 
             revealed_ids = payload['predicted_ids'][:step_idx + 1]
             end_id = payload['end_id']
             se_revealed = end_id in revealed_ids
             special_chars = ['LI', 'LE', 'SI', 'SE' if se_revealed else None]
-            sa['special_grid'].set_cells(special_chars, [norm(v) for v in special_vals])
+            sa['special_grid'].set_cells(special_chars, [norm(v) for v in special_vals], highlight_index=hl_special)
             sa['special_grid'].draw(screen, fonts[2], fonts[2])
 
             pred_display = [['#'] * lab_size for _ in range(lab_size)]
@@ -1134,6 +1184,7 @@ def render(screen, fonts, display_data, tokenizer):
                     pred_score_grid[r][c] = norm(token_vals[i]) if i < len(token_vals) else 0.0
             sa['predicted_matrix'].update_from_labyrinth(pred_display)
             sa['predicted_matrix'].set_scores(pred_score_grid)
+            sa['predicted_matrix'].set_highlight(hl_pos)
             sa['predicted_matrix'].draw(screen, fonts[1], pygame.mouse.get_pos())
 
             sa['step_slider'].draw(screen, fonts[2], label_override=f"Passo: {step_idx + 1} / {len(payload['predicted_ids'])}")
@@ -1373,7 +1424,7 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
             "payload": None,
             "loading_bar": UILoadingBar(
                 x="10vw", y="50vh", width="80vw", height="6vh",
-                text="Calculando atenção", bg_color="#112230", fill_color="#FFD000"
+                text="Calculando atenção", bg_color="#112230", fill_color="#2A93CB"
             ),
             "buttons": [
                 UIButton(id_name="btn_new_attention_sample", x="3vh", y="10vh",
@@ -1383,7 +1434,7 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
             "special_grid": UITokenGrid(x="140vh", y="18vh", width="20vh", height="62vh", rows=4, cols=1, title=""),
             "predicted_matrix": ScreenMatrix(x="71.5vh", y="18vh", width="62vh", height="62vh", k=conf['lab_size'], font=fonts[3]),
             "step_slider": UISlider(x="84vh", y="90vh", width="78vh", height="6vh", min_value=0, max_value=1, value=0, label="Passo"),
-            "head_slider": UISlider(x="3vh", y="90vh", width="78vh", height="6vh", min_value=0, max_value=1, value=0, label="Cabeça", handle_color="#FFD000"),
+            "head_slider": UISlider(x="3vh", y="90vh", width="78vh", height="6vh", min_value=0, max_value=1, value=0, label="Cabeça", handle_color="#2A93CB"),
         }
     }
     sm = display_data['screen_metrics']
@@ -1396,7 +1447,7 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
             sm['solucao_counts'] = saved.get('solucao_counts', {})
             sm['value_history'] = saved.get('value_history', {})
             sm['score_history'] = saved.get('score_history', {})
-            sm['avg_score'] = {k: float(v) for k, v in sm['avg_plain'].items() if v != "-"}
+            sm['avg_score'] = {k: sum(v)/len(v) for k, v in sm['score_history'].items() if v}
             
             colored, plain = build_avg_table_display(sm['table'].data, sm['avg_score'], sm['value_history'])
             sm['avg_plain'] = plain
@@ -1457,10 +1508,21 @@ if __name__ == "__main__":
     )
 '''
 
+
 '''
-if __name__ == "__main__":
+evaluate(
+        run_id="runs/SimpleDecoder/completion/CompletionDecoderLarge/best_model.pt",
+        config="SimpleDecoder",
+        dataset="datasets/test/completion/Simple_dataset.txt",
+        directions_task=False,
+        window_size=(1280,720)
+    )
+'''
+
+
+'''
     evaluate(
-        run_id="runs/SimpleDencoder/completion/Testy/best_model.pt",
+        run_id="runs/SimpleDencoder/completion/CompletionDencoder/best_model.pt",
         config="SimpleDencoder",
         dataset="datasets/test/completion/Simple_example.txt",
         directions_task=False,
