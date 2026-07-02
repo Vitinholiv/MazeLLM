@@ -52,7 +52,7 @@ class UnmaskedSelfAttention(nn.Module):
         self.out_proj = nn.Linear(d_out, d_out)
         self.dropout  = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         B, T, _ = x.shape
         scale = self.head_dim ** -0.5
 
@@ -62,6 +62,7 @@ class UnmaskedSelfAttention(nn.Module):
 
         out = F.scaled_dot_product_attention(
             Q, K, V,
+            attn_mask=mask,
             dropout_p=self.dropout.p if self.training else 0.0,
             is_causal=False,
             scale=scale,
@@ -180,7 +181,7 @@ class CrossAttention(nn.Module):
         self.out_proj = nn.Linear(d_out, d_out)
         self.dropout  = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, context: torch.Tensor, context_mask: torch.Tensor) -> torch.Tensor:
         B, T, _ = x.shape
         _, T_ctx, _ = context.shape
         scale = self.head_dim ** -0.5
@@ -191,6 +192,7 @@ class CrossAttention(nn.Module):
 
         out = F.scaled_dot_product_attention(
             Q, K, V,
+            attn_mask=context_mask,
             dropout_p=self.dropout.p if self.training else 0.0,
             is_causal=False,
             scale=scale,
@@ -198,7 +200,7 @@ class CrossAttention(nn.Module):
         out = out.transpose(1, 2).contiguous().view(B, T, self.d_out)
         return self.out_proj(out)
     
-    def weighted_forward(self, x: torch.Tensor, context: torch.Tensor):
+    def weighted_forward(self, x: torch.Tensor, context: torch.Tensor, context_mask: torch.Tensor):
         B, T, _ = x.shape
         _, T_ctx, _ = context.shape
         scale = self.head_dim ** -0.5
@@ -208,6 +210,10 @@ class CrossAttention(nn.Module):
         V = self.W_value(context).view(B, T_ctx, self.num_heads, self.head_dim).transpose(1, 2)
 
         scores = (Q @ K.transpose(-2, -1))*scale
+        
+        if context_mask is not None:
+            scores = scores.masked_fill(context_mask == 0, float('-inf'))
+            
         attn_weights = torch.softmax(scores.to(torch.float32), dim=-1).to(V.dtype)
 
         out = attn_weights @ V
@@ -237,8 +243,8 @@ class EncoderTransformerBlock(nn.Module):
         self.norm2 = nn.LayerNorm(config["emb_dim"])
         self.drop  = nn.Dropout(config["drop_rate"])
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.drop(self.att(self.norm1(x)))
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        x = x + self.drop(self.att(self.norm1(x), mask=mask))
         x = x + self.drop(self.ff(self.norm2(x)))
         return x
     
@@ -309,16 +315,16 @@ class CrossDecoderTransformerBlock(nn.Module):
         self.norm3 = nn.LayerNorm(config["emb_dim"])
         self.drop  = nn.Dropout(config["drop_rate"])
 
-    def forward(self, x: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, context: torch.Tensor, context_mask: torch.Tensor) -> torch.Tensor:
         x = x + self.drop(self.self_att(self.norm1(x)))
-        x = x + self.drop(self.cross_att(self.norm2(x), context=context))
+        x = x + self.drop(self.cross_att(self.norm2(x), context=context, context_mask=context_mask))
         x = x + self.drop(self.ff(self.norm3(x)))
         return x
     
-    def weighted_forward(self, x: torch.Tensor, context: torch.Tensor):
+    def weighted_forward(self, x: torch.Tensor, context: torch.Tensor, context_mask: torch.Tensor):
         self_out, self_weights = self.self_att.weighted_forward(self.norm1(x))
         x = x + self.drop(self_out)
-        cross_out, cross_weights = self.cross_att.weighted_forward(self.norm2(x), context=context)
+        cross_out, cross_weights = self.cross_att.weighted_forward(self.norm2(x), context=context, context_mask=context_mask)
         x = x + self.drop(cross_out)
         x = x + self.drop(self.ff(self.norm3(x)))
         return x, {"self": self_weights, "cross": cross_weights}

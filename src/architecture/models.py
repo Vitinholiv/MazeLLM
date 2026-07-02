@@ -37,14 +37,17 @@ class MazeEncoder(nn.Module):
         self.tasks          = config["tasks"]
 
     def forward(self, in_idx: torch.Tensor) -> torch.Tensor:
+        mask = (in_idx != 0).unsqueeze(1).unsqueeze(2)
         x = self.drop_emb(self.embedder(in_idx))
-        x = self.transformer_blocks(x)
+        for block in self.transformer_blocks:
+            x = block(x, mask=mask)
         x = self.final_norm(x)
         return self.out_head(x)
     
     @torch.no_grad()
     def get_attention(self, in_idx: torch.Tensor, layer_idx: int = -1) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         self.eval()
+        mask = (in_idx != 0).unsqueeze(1).unsqueeze(2)
         x = self.drop_emb(self.embedder(in_idx))
         extracted_weights = None
         
@@ -55,7 +58,7 @@ class MazeEncoder(nn.Module):
             if i == layer_idx:
                 x, extracted_weights = block.weighted_forward(x)
             else:
-                x = block(x)
+                x = block(x, mask=mask)
                 
         x = self.final_norm(x)
         logits = self.out_head(x)
@@ -150,24 +153,26 @@ class MazeDencoder(nn.Module):
         self.tokenizer_type = config["tokenizer_type"]
         self.tasks          = config["tasks"]
 
-    def encode(self, maze_idx: torch.Tensor) -> torch.Tensor:
-        maze_emb = self.drop_emb(self.embedder(maze_idx))
-        ctx = self.encoder_blocks(maze_emb)
-        return self.encoder_norm(ctx)
+    def encode(self, maze_idx: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        mask = (maze_idx != 0).unsqueeze(1).unsqueeze(2) # (B, 1, 1, T)
+        ctx = self.drop_emb(self.embedder(maze_idx))
+        for block in self.encoder_blocks:
+            ctx = block(ctx, mask=mask)
+        return self.encoder_norm(ctx), mask
 
-    def decode_step(self, target_idx: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+    def decode_step(self, target_idx: torch.Tensor, context: torch.Tensor, context_mask: torch.Tensor) -> torch.Tensor:
         x = self.drop_emb(self.embedder(target_idx))
         for block in self.decoder_blocks:
-            x = block(x, context=context)
+            x = block(x, context=context, context_mask=context_mask)
         x = self.final_norm(x)
         return self.out_head(x)
 
     def forward(self, maze_idx: torch.Tensor, target_idx: torch.Tensor) -> torch.Tensor:
-        context = self.encode(maze_idx)
+        context, context_mask = self.encode(maze_idx)
         
         x = self.drop_emb(self.embedder(target_idx))
         for block in self.decoder_blocks:
-            x = block(x, context=context)
+            x = block(x, context=context, context_mask=context_mask)
             
         x = self.final_norm(x)
         return self.out_head(x)
@@ -175,7 +180,7 @@ class MazeDencoder(nn.Module):
     @torch.no_grad()
     def get_attention(self, maze_idx: torch.Tensor, target_idx: torch.Tensor, layer_idx: int = -1) -> Tuple[torch.Tensor, Optional[Dict[str, torch.Tensor]]]:
         self.eval()
-        context = self.encode(maze_idx)
+        context, context_mask = self.encode(maze_idx)
         
         x = self.drop_emb(self.embedder(target_idx))
         extracted_weights = None
@@ -185,9 +190,9 @@ class MazeDencoder(nn.Module):
 
         for i, block in enumerate(self.decoder_blocks):
             if i == layer_idx:
-                x, extracted_weights = block.weighted_forward(x, context=context)
+                x, extracted_weights = block.weighted_forward(x, context=context, context_mask=context_mask)
             else:
-                x = block(x, context=context)
+                x = block(x, context=context, context_mask=context_mask)
                 
         x = self.final_norm(x)
         logits = self.out_head(x)

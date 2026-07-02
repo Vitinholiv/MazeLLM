@@ -18,6 +18,7 @@ def train(run_id: str, config: str, dataset: str, directions_task: bool, batch_s
     task_name = 'directions' if directions_task else 'completion'
     best_loss = float('inf')
     global_step = 0
+    start_epoch = 1
 
     dataloader = build_dataloader(
         dsrc=dataset,
@@ -33,7 +34,6 @@ def train(run_id: str, config: str, dataset: str, directions_task: bool, batch_s
     optimizer = AdamW(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_id)
 
-    print(f"\nStarting training process: {epochs} Epochs | Batch Size: {batch_size} | LR: {lr}")
     os.makedirs("runs", exist_ok=True)
     os.makedirs(f"runs/{config}", exist_ok=True)
     os.makedirs(f"runs/{config}/{task_name}", exist_ok=True)
@@ -42,9 +42,7 @@ def train(run_id: str, config: str, dataset: str, directions_task: bool, batch_s
     logpath = f"{savefolder}/training_logs.json"
     bestpath = f"{savefolder}/best_model.pt"
     epochpath = lambda e: f"{savefolder}/epoch_{e}.pt"
-
-    writer = SummaryWriter(log_dir=f"{savefolder}/tensorboard")
-
+    
     training_logs = {
         "metadata": {
             "run_id": run_id, "config": config, "dataset": dataset, "task": task_name,
@@ -53,6 +51,31 @@ def train(run_id: str, config: str, dataset: str, directions_task: bool, batch_s
         },
         "epoch_history": [], "step_loss_history": [], "lr_history": [], "metrics_history": []
     }
+
+    if os.path.exists(logpath) and os.path.exists(bestpath):
+        print(f"\nFound existing run '{run_id}'. Resuming training...")
+        with open(logpath, "r", encoding="utf-8") as f:
+            training_logs = json.load(f)
+        
+        if training_logs["epoch_history"]:
+            last_epoch_data = training_logs["epoch_history"][-1]
+            start_epoch = last_epoch_data["epoch"] + 1
+            best_loss = min([e["avg_loss"] for e in training_logs["epoch_history"]])
+        
+        if training_logs["step_loss_history"]:
+            global_step = len(training_logs["step_loss_history"])
+            
+        last_epoch_path = epochpath(start_epoch - 1)
+        if os.path.exists(last_epoch_path):
+            model.load_state_dict(torch.load(last_epoch_path, map_location=device, weights_only=True))
+        else:
+            model.load_state_dict(torch.load(bestpath, map_location=device, weights_only=True))
+            
+        print(f"Resuming from Epoch {start_epoch} (Global Step: {global_step}, Best Loss: {best_loss:.4f})")
+    else:
+        print(f"\nStarting new training process: {epochs} Epochs | Batch Size: {batch_size} | LR: {lr}")
+
+    writer = SummaryWriter(log_dir=f"{savefolder}/tensorboard")
 
     def log_batch_metrics(input_ids_batch, target_ids_batch, logits, step):
         with torch.no_grad():
@@ -87,7 +110,9 @@ def train(run_id: str, config: str, dataset: str, directions_task: bool, batch_s
         model.train()
         total_loss = 0
         start_time = time.time()
-        pbar = tqdm(dataloader, desc=f"Epoch {epoch}/{epochs}")
+        
+        target_epochs = start_epoch + epochs - 1
+        pbar = tqdm(dataloader, desc=f"Epoch {epoch}/{target_epochs}")
 
         for batch in pbar:
             optimizer.zero_grad()
@@ -139,18 +164,7 @@ def train(run_id: str, config: str, dataset: str, directions_task: bool, batch_s
             json.dump(training_logs, f, indent=4)
         torch.save(model.state_dict(), epochpath(epoch))
 
-    for epoch in range(1, epochs + 1):
+    for epoch in range(start_epoch, start_epoch + epochs):
         train_one_epoch(epoch)
 
     writer.close()
-
-if __name__ == "__main__":
-    train(
-        'CompletionDencoder',
-        'SimpleDencoder',
-        'datasets/train/completion/Simple_dataset.txt',
-        False,
-        batch_size=16,
-        epochs=5,
-        lr=5e-4
-    )
