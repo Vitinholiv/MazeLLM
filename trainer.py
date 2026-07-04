@@ -155,26 +155,22 @@ if __name__ == "__main__":
             savedtxt += f"\nSelecione a tarefa (\n   [1] completion\n   [2] directions\n): {user_input}\n"
 
         if step == 2:
-            known_configs = set()
-            if os.path.exists("./runs"):
-                for entry in os.listdir("./runs"):
-                    if os.path.isdir(os.path.join("./runs", entry)):
-                        known_configs.add(entry)
-            config_options = sorted(known_configs)
+            config_options = sorted(ModelConfigs.get_all().keys())
 
             if config_options:
                 opts_str = "\n   ".join([f"[{i+1}] {opt}" for i, opt in enumerate(config_options)])
                 user_input = input(f"\nSelecione a config (\n   {opts_str}\n): ").strip()
-            else:
-                user_input = input("\nDigite o nome da config: ").strip()
 
-            if not config_options:
-                candidate = user_input
-            elif user_input.isdigit() and 1 <= int(user_input) <= len(config_options):
-                candidate = config_options[int(user_input) - 1]
+                if user_input.isdigit() and 1 <= int(user_input) <= len(config_options):
+                    candidate = config_options[int(user_input) - 1]
+                elif user_input in config_options:
+                    candidate = user_input
+                else:
+                    errortxt = "\nEscolha um índice válido.\n"
+                    continue
             else:
-                errortxt = "\nEscolha um índice válido.\n"
-                continue
+                user_input = input("\nNenhuma config encontrada em ModelConfigs. Digite o nome da config: ").strip()
+                candidate = user_input
 
             try:
                 ModelConfigs.get(candidate)
