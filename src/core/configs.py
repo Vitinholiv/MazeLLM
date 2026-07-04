@@ -21,6 +21,102 @@ class ModelConfigs:
         "lab_size":       21
     }
 
+    SimpleDecoderEmbP = {
+        "name":           "SimpleDecoderEmbP",
+        "class":          MazeDecoder,
+        "tokenizer":      SimpleTokenizer,
+        "tokenizer_type": "individual",
+        "dataset_mode":   "decoder",
+        "tasks":          ["completion", "directions"],
+        "context_length": 1024,
+        "emb_dim":        512,
+        "n_heads":        8,
+        "n_layers":       6,
+        "drop_rate":      0.1,
+        "qkv_bias":       False,
+        "lab_size":       21
+    }
+
+    SimpleDecoderEmbM = {
+        "name":           "SimpleDecoderEmbM",
+        "class":          MazeDecoder,
+        "tokenizer":      SimpleTokenizer,
+        "tokenizer_type": "individual",
+        "dataset_mode":   "decoder",
+        "tasks":          ["completion", "directions"],
+        "context_length": 1024,
+        "emb_dim":        128,
+        "n_heads":        8,
+        "n_layers":       6,
+        "drop_rate":      0.1,
+        "qkv_bias":       False,
+        "lab_size":       21
+    }
+
+    SimpleDecoder25 = {
+        "name":           "SimpleDecoder25",
+        "class":          MazeDecoder,
+        "tokenizer":      SimpleTokenizer,
+        "tokenizer_type": "individual",
+        "dataset_mode":   "decoder",
+        "tasks":          ["completion", "directions"],
+        "context_length": 1400,
+        "emb_dim":        256,
+        "n_heads":        8,
+        "n_layers":       6,
+        "drop_rate":      0.1,
+        "qkv_bias":       False,
+        "lab_size":       25
+    }
+
+    SimpleDecoder29 = {
+        "name":           "SimpleDecoder29",
+        "class":          MazeDecoder,
+        "tokenizer":      SimpleTokenizer,
+        "tokenizer_type": "individual",
+        "dataset_mode":   "decoder",
+        "tasks":          ["completion", "directions"],
+        "context_length": 1850,
+        "emb_dim":        256,
+        "n_heads":        8,
+        "n_layers":       6,
+        "drop_rate":      0.1,
+        "qkv_bias":       False,
+        "lab_size":       29
+    }
+
+    SimpleDecoder33 = {
+        "name":           "SimpleDecoder33",
+        "class":          MazeDecoder,
+        "tokenizer":      SimpleTokenizer,
+        "tokenizer_type": "individual",
+        "dataset_mode":   "decoder",
+        "tasks":          ["completion", "directions"],
+        "context_length": 2400,
+        "emb_dim":        256,
+        "n_heads":        8,
+        "n_layers":       6,
+        "drop_rate":      0.1,
+        "qkv_bias":       False,
+        "lab_size":       33
+    }
+
+    SimpleDecoder37 = {
+        "name":           "SimpleDecoder37",
+        "class":          MazeDecoder,
+        "tokenizer":      SimpleTokenizer,
+        "tokenizer_type": "individual",
+        "dataset_mode":   "decoder",
+        "tasks":          ["completion", "directions"],
+        "context_length": 3000,
+        "emb_dim":        256,
+        "n_heads":        8,
+        "n_layers":       6,
+        "drop_rate":      0.1,
+        "qkv_bias":       False,
+        "lab_size":       37
+    }
+
     SimpleDencoder = {
         "name":           "SimpleDencoder",
         "class":          MazeDencoder,
