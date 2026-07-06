@@ -104,6 +104,9 @@ def train(run_id: str, config: str, dataset: str, directions_task: bool, batch_s
 
         avg_scores = {k: total / score_count for k, total in score_sums.items()}
         training_logs["metrics_history"].append({"step": step, "values": avg_scores})
+        
+        for k, v in avg_scores.items():
+            writer.add_scalar(f"metrics/{k}", v, step)
 
     def train_one_epoch(epoch):
         nonlocal best_loss, global_step

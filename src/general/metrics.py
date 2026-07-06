@@ -410,7 +410,7 @@ def calculate_direction_metrics(input_matrix, solv_directions, pred_directions, 
         'Acurácia': 1.0 if results['Acurácia'] == 'Ótima' else 0.8 if results['Acurácia'] == 'Correta' else 0.0,
         'Edit Distance': 1.0 - min(results['Edit Distance'] / max(results['Tokens Ótimos'], 1), 1.0),
         'Tokens Diferentes': 1.0 - min(results['Tokens Diferentes'] / max(results['Tokens Ótimos'], 1), 1.0),
-        'Progresso Direto': results['Progresso Direto'] / (results['Tokens Ótimos']),
+        'Progresso Direto': results['Progresso Direto'] / max(results['Tokens Ótimos'], 1),
         'Distância Direta': (1 / (results['Distância Direta'] + 1)) ** 0.5,
         'Paredes Violadas': 1 / (results['Paredes Violadas'] + 1),
     }

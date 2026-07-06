@@ -512,6 +512,10 @@ class ScreenMatrix:
     def set_highlight(self, pos):
         self.highlight_pos = pos
 
+    def resize(self, k):
+        self.k = k
+        self.grid = [[{"char": "#", "score": 0.0} for _ in range(k)] for _ in range(k)]
+
     def update_from_labyrinth(self, maze_data: list):
         for r in range(self.k):
             for c in range(self.k):
@@ -1258,10 +1262,10 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
     # Fonts
     ui_font_family = "arial, segoeui, freesansbold"
     fonts = [
-        pygame.font.SysFont(ui_font_family, 24, bold=False),
-        pygame.font.SysFont(ui_font_family, 20, bold=False),
-        pygame.font.SysFont(ui_font_family, 16, bold=False),
-        pygame.font.SysFont(ui_font_family, 13, bold=False)
+        pygame.font.SysFont(ui_font_family, 23, bold=False),
+        pygame.font.SysFont(ui_font_family, 18, bold=False),
+        pygame.font.SysFont(ui_font_family, 14, bold=False),
+        pygame.font.SysFont(ui_font_family, 12, bold=False)
     ]
 
     # General Objects
@@ -1379,19 +1383,19 @@ def evaluate(run_id: str, config: str, dataset: str, directions_task: bool, load
                     x="3vh", y="18vh",
                     width="80vh",
                     height="80vh",
-                    k=21
+                    k=conf['lab_size']
                 ),
                 ScreenMatrix(
                     x="3vh", y="18vh",
                     width="80vh",
                     height="80vh",
-                    k=21
+                    k=conf['lab_size']
                 ),
                 ScreenMatrix(
                     x="3vh", y="18vh",
                     width="80vh",
                     height="80vh",
-                    k=21
+                    k=conf['lab_size']
                 )
             ],
             "table": UIMetricsTable(
