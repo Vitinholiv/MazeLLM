@@ -300,6 +300,8 @@ def generate_with_attention_gen(sample, tokenizer, directions_task, model, devic
             predicted_ids.append(next_token.item())
             seq = torch.cat([seq, next_token], dim=1)
             yield i / steps if steps > 0 else 1.0
+            if next_token.item() == end_id:
+                break
         num_heads = history[0]['self'].shape[0] if history else 0
         mode = 'decoder'
 
@@ -320,6 +322,8 @@ def generate_with_attention_gen(sample, tokenizer, directions_task, model, devic
             predicted_ids.append(next_token.item())
             r_in = torch.cat([r_in, next_token], dim=1)
             yield i / steps if steps > 0 else 1.0
+            if next_token.item() == end_id:
+                break
         num_heads = history[0]['self'].shape[0] if history else 0
         mode = 'dencoder'
     else:
@@ -328,6 +332,7 @@ def generate_with_attention_gen(sample, tokenizer, directions_task, model, devic
     return {
         'input_matrix': input_matrix, 'history': history, 'predicted_ids': predicted_ids,
         'num_heads': num_heads, 'mode': mode, 'end_id': end_id, 'lab_size': conf['lab_size'],
+        'directions_task': directions_task
     }
 
 
@@ -1195,34 +1200,74 @@ def render(screen, fonts, display_data, tokenizer):
             norm = lambda v: v / max_val
 
             lab_size = payload['lab_size']
+            directions_task = payload.get('directions_task', False)
             
-            if step_idx < lab_size * lab_size:
-                hl_pos = (step_idx // lab_size, step_idx % lab_size)
-                hl_special = None
+            revealed_ids = payload['predicted_ids'][:step_idx + 1]
+            end_id = payload['end_id']
+            se_revealed = end_id in revealed_ids
+            
+            past_ids = [tid for tid in payload['predicted_ids'][:step_idx] if tid != end_id]
+            
+            if directions_task:
+                pred_display = [list(row) for row in payload['input_matrix']]
+                pred_score_grid = [[0.0] * lab_size for _ in range(lab_size)]
+                DIRS = {'U': (-1, 0), 'D': (1, 0), 'L': (0, -1), 'R': (0, 1)}
+                
+                start_pos = None
+                for r in range(lab_size):
+                    for c in range(lab_size):
+                        if pred_display[r][c] == 'S':
+                            start_pos = (r, c)
+                            break
+                    if start_pos: break
+                            
+                chars = [tokenizer.id_to_char.get(tid, '?') for tid in past_ids]
+                positions = [start_pos]
+                cur = start_pos
+                for d in chars:
+                    if cur and d in DIRS:
+                        dr, dc = DIRS[d]
+                        nxt = (cur[0] + dr, cur[1] + dc)
+                        if 0 <= nxt[0] < lab_size and 0 <= nxt[1] < lab_size:
+                            cur = nxt
+                    positions.append(cur)
+                    
+                for i, d in enumerate(chars):
+                    pos = positions[i]
+                    if pos:
+                        r, c = pos
+                        if i > 0 and pred_display[r][c] not in ['S', 'E']:
+                            pred_display[r][c] = d
+                        
+                        pred_score_grid[r][c] = norm(token_vals[i]) if i < len(token_vals) else 0.0
+                            
+                hl_pos = positions[-1] if (positions and not se_revealed) else None
+                hl_special = 3 if se_revealed else None
             else:
-                hl_pos = None
-                hl_special = 3
+                pred_display = [['#'] * lab_size for _ in range(lab_size)]
+                pred_score_grid = [[0.0] * lab_size for _ in range(lab_size)]
+                for i, tid in enumerate(past_ids):
+                    r, c = i // lab_size, i % lab_size
+                    if r < lab_size:
+                        pred_display[r][c] = tokenizer.id_to_char.get(tid, '?')
+                        pred_score_grid[r][c] = norm(token_vals[i]) if i < len(token_vals) else 0.0
+                
+                if step_idx < lab_size * lab_size:
+                    hl_pos = (step_idx // lab_size, step_idx % lab_size)
+                    hl_special = None
+                else:
+                    hl_pos = None
+                    hl_special = 3
                 
             score_grid = [[norm(maze_vals[r * lab_size + c]) for c in range(lab_size)] for r in range(lab_size)]
             sa['maze_matrix'].set_scores(score_grid)
             sa['maze_matrix'].set_highlight(hl_pos)
             sa['maze_matrix'].draw(screen, fonts[1], pygame.mouse.get_pos())
 
-            revealed_ids = payload['predicted_ids'][:step_idx + 1]
-            end_id = payload['end_id']
-            se_revealed = end_id in revealed_ids
             special_chars = ['LI', 'LE', 'SI', 'SE' if se_revealed else None]
             sa['special_grid'].set_cells(special_chars, [norm(v) for v in special_vals], highlight_index=hl_special)
             sa['special_grid'].draw(screen, fonts[2], fonts[2])
 
-            pred_display = [['#'] * lab_size for _ in range(lab_size)]
-            pred_score_grid = [[0.0] * lab_size for _ in range(lab_size)]
-            content_ids = [tid for tid in revealed_ids if tid != end_id]
-            for i, tid in enumerate(content_ids):
-                r, c = i // lab_size, i % lab_size
-                if r < lab_size:
-                    pred_display[r][c] = tokenizer.id_to_char.get(tid, '?')
-                    pred_score_grid[r][c] = norm(token_vals[i]) if i < len(token_vals) else 0.0
             sa['predicted_matrix'].update_from_labyrinth(pred_display)
             sa['predicted_matrix'].set_scores(pred_score_grid)
             sa['predicted_matrix'].set_highlight(hl_pos)
