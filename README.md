@@ -1,6 +1,6 @@
-# MazeLLM: Modelo de Linguagem Preditor de Labirintos
+# Modelo Transformer Preditor de Labirintos
 
-O objetivo deste projeto é representar labirintos como sequências de caracteres de texto e treinar um modelo de linguagem capaz de compreender a topologia estrutural e espacial do mapa. A partir de um ponto inicial (`S`), o modelo deve ser capaz de ler os arredores e fornecer uma sequência de instruções direcionais (Cima, Baixo, Esquerda, Direita) que percorre os caminhos livres até alcançar uma posição de destino (`E`), garantindo que nenhuma parede (`#`) seja violada no processo. 
+O objetivo deste projeto é representar labirintos como sequências de caracteres de texto e treinar um modelo de inteligência artificial com uma arquitetura de transformer capaz de compreender a topologia estrutural e espacial do mapa. A partir de um ponto inicial (`S`), o modelo deve ser capaz de ler os arredores e fornecer uma sequência de instruções direcionais (Cima, Baixo, Esquerda, Direita) que percorre os caminhos livres até alcançar uma posição de destino (`E`), garantindo que nenhuma parede (`#`) seja violada no processo. 
 
 ## Como Usar
 Para instalar as dependências necessárias e preparar o ambiente de forma automática, instale o pacote root no modo iterativo:
@@ -40,4 +40,4 @@ Os modelos foram construídos em PyTorch e treinados iterativamente utilizando a
 ## Resultados
 A arquitetura `Decoder-Only` obteve o maior sucesso isolado no processamento e solução do desafio.
 
-O nosso melhor modelo atingiu uma marca de **99.6% de acurácia na solução** dos labirintos de validação. Dentro destas respostas corretas, notáveis **94.9% consistiram da rota ótima de menor caminho**. Esses resultados indicam forte evidência de que um modelo de linguagem pode de fato mapear a espacialidade bidimensional a partir de um input unilateral. Todos os pesos de modelos e logs de treino são gerados de forma automática na pasta raiz `./runs/` separada pelo nome das configurações.
+O nosso melhor modelo atingiu uma marca de **99.6% de acurácia na solução** dos labirintos de validação. Dentro destas respostas corretas, notáveis **94.9% consistiram da rota ótima de menor caminho**. Esses resultados indicam forte evidência de que um transformer pode de fato mapear a espacialidade bidimensional a partir de um input unilateral. Todos os pesos de modelos e logs de treino são gerados de forma automática na pasta raiz `./runs/` separada pelo nome das configurações.
